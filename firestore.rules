@@ -1,0 +1,117 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: users
+// Document ID: {userId}
+// Fields:
+//   - uid: string (required) - Firebase Auth UID
+//   - name: string (required) - Full name
+//   - email: string (required) - User email
+//   - role: string (required, enum: ['talent', 'investor']) - User role
+//   - bio: string (optional) - Short bio
+//   - category: string (optional) - Main category for talents
+//   - photoURL: string (optional) - Profile picture URL
+//   - createdAt: timestamp (optional) - Account creation date
+//
+// Collection: projects
+// Document ID: {projectId}
+// Fields:
+//   - id: string (required) - Project ID
+//   - talentId: string (required) - UID of the talent who created this
+//   - talentName: string (required) - Name of the talent
+//   - title: string (required) - Project title
+//   - description: string (required) - Project description
+//   - category: string (required) - Project category
+//   - imageUrl: string (optional) - Project image URL
+//   - createdAt: timestamp (required) - Publication date
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.talentId;
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'name', 'email', 'role']) &&
+             data.uid is string && data.uid.size() > 0 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.email is string && data.email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$") &&
+             data.role in ['talent', 'investor'];
+    }
+
+    function isValidProject(data) {
+      return data.keys().hasAll(['id', 'talentId', 'talentName', 'talentEmail', 'title', 'description', 'category', 'createdAt']) &&
+             data.id is string &&
+             data.talentId is string &&
+             data.talentName is string &&
+             data.talentEmail is string &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             data.description is string && data.description.size() > 0 && data.description.size() < 5000 &&
+             data.category is string &&
+             data.createdAt is timestamp;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "daccumbe@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role != 'admin' || isAdmin());
+      allow update: if isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role == resource.data.role || isAdmin());
+    }
+
+    match /projects/{projectId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidProject(request.resource.data) && request.resource.data.talentId == request.auth.uid;
+      allow update: if (isDocOwner() && isValidProject(request.resource.data) && request.resource.data.talentId == resource.data.talentId) ||
+                    (isAuthenticated() && 
+                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount', 'likedBy', 'rating']) &&
+                     // Basic validation for rating update
+                     (!('rating' in request.resource.data) || (
+                       (!('rating' in resource.data) && request.resource.data.rating.count == 1) ||
+                       (request.resource.data.rating.count == resource.data.rating.count + 1 &&
+                        request.resource.data.rating.ratedBy.size() == resource.data.rating.ratedBy.size() + 1 &&
+                        request.resource.data.rating.ratedBy.hasAll(resource.data.rating.ratedBy))
+                     ) &&
+                     request.resource.data.rating.ratedBy.hasAny([request.auth.uid]) &&
+                     resource.data.talentId != request.auth.uid
+                    ));
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    match /conversations/{conversationId} {
+      allow read: if isAuthenticated() && request.auth.uid in resource.data.participants;
+      allow create: if isAuthenticated() && request.auth.uid in request.resource.data.participants;
+      allow update: if isAuthenticated() && request.auth.uid in resource.data.participants;
+      
+      match /messages/{messageId} {
+        allow read: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
+        allow create: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants && request.resource.data.senderId == request.auth.uid;
+      }
+    }
+  }
+}

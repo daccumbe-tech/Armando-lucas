@@ -1,0 +1,95 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Profile information for talents and investors.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "name": { "type": "string", "description": "Full name" },
+        "email": { "type": "string", "format": "email", "description": "User email" },
+        "role": { "type": "string", "enum": ["talent", "investor"], "description": "User role" },
+        "bio": { "type": "string", "description": "Short bio" },
+        "category": { "type": "string", "description": "Main category for talents" },
+        "skills": { "type": "array", "items": { "type": "string" } },
+        "photoURL": { "type": "string", "format": "uri", "description": "Profile picture URL" },
+        "whatsapp": { "type": "string", "description": "WhatsApp number" },
+        "isFeatured": { "type": "boolean", "description": "Whether the talent is featured" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Account creation date" }
+      },
+      "required": ["uid", "name", "email", "role"]
+    },
+    "Project": {
+      "title": "Project/Work",
+      "description": "A piece of work or portfolio item published by a talent.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Project ID" },
+        "talentId": { "type": "string", "description": "UID of the talent who created this" },
+        "talentName": { "type": "string", "description": "Name of the talent" },
+        "talentEmail": { "type": "string", "description": "Email of the talent" },
+        "title": { "type": "string", "description": "Project title" },
+        "description": { "type": "string", "description": "Project description" },
+        "category": { "type": "string", "description": "Project category" },
+        "imageUrl": { "type": "string", "format": "uri", "description": "Project image URL" },
+        "likesCount": { "type": "integer", "description": "Number of likes" },
+        "rating": {
+          "type": "object",
+          "properties": {
+            "average": { "type": "number", "description": "Average rating (1-5)" },
+            "count": { "type": "integer", "description": "Number of ratings" },
+            "total": { "type": "integer", "description": "Total sum of stars" },
+            "ratedBy": { "type": "array", "items": { "type": "string" }, "description": "UIDs of users who rated" }
+          }
+        },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Publication date" }
+      },
+      "required": ["id", "talentId", "title", "description", "category"]
+    },
+    "Conversation": {
+      "title": "Conversation",
+      "description": "A chat session between two users.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "participants": { "type": "array", "items": { "type": "string" } },
+        "participantNames": { "type": "object" },
+        "lastMessage": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "participants"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "A single chat message.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "conversationId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "conversationId", "senderId", "text"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/projects/{projectId}": {
+      "schema": "Project",
+      "description": "Talent projects"
+    },
+    "/conversations/{conversationId}": {
+      "schema": "Conversation",
+      "description": "Chat conversations"
+    },
+    "/conversations/{conversationId}/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Messages within a conversation"
+    }
+  }
+}
