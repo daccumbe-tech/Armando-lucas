@@ -1,5 +1,5 @@
 import { Project } from '../types';
-import { Calendar, Tag, User, ExternalLink, Heart } from 'lucide-react';
+import { Calendar, Tag, User, ExternalLink, Heart, MessageSquare } from 'lucide-react';
 import StarRating from './StarRating';
 
 interface ProjectCardProps {
@@ -66,9 +66,15 @@ export default function ProjectCard({ project, onViewDetails, onViewProfile, onL
               {project.talentName}
             </button>
           </div>
-          <div className="flex items-center gap-1 text-xs font-bold text-gray-400">
-            <Heart size={12} />
-            {project.likesCount || 0}
+          <div className="flex items-center gap-3 text-xs font-bold text-gray-400">
+            <div className="flex items-center gap-1">
+              <Heart size={12} />
+              {project.likesCount || 0}
+            </div>
+            <div className="flex items-center gap-1">
+              <MessageSquare size={12} />
+              {project.commentsCount || 0}
+            </div>
           </div>
         </div>
         
@@ -81,19 +87,32 @@ export default function ProjectCard({ project, onViewDetails, onViewProfile, onL
         </p>
 
         <div className="mt-auto pt-4 border-t border-gray-50 flex flex-col gap-4">
-          <StarRating 
-            rating={project.rating?.average || 0} 
-            count={project.rating?.count || 0}
-            onRate={(stars) => onRate?.(project.id, stars)}
-            readOnly={!currentUserId || project.rating?.ratedBy?.includes(currentUserId || '') || project.talentId === currentUserId}
-          />
+          <div className="flex items-center justify-between">
+            <StarRating 
+              rating={project.rating?.average || 0} 
+              count={project.rating?.count || 0}
+              onRate={(stars) => onRate?.(project.id, stars)}
+              readOnly={!currentUserId || project.rating?.ratedBy?.includes(currentUserId || '') || project.talentId === currentUserId}
+            />
+            {project.projectLink && (
+              <a 
+                href={project.projectLink} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="p-2 bg-gray-50 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
+                title="Ver Projeto"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <ExternalLink size={18} />
+              </a>
+            )}
+          </div>
           
           <button 
             onClick={() => onViewDetails?.(project)}
             className="w-full flex items-center justify-center gap-2 bg-gray-50 text-gray-700 py-3 rounded-xl text-sm font-bold hover:bg-indigo-600 hover:text-white transition-all"
           >
             Ver Detalhes
-            <ExternalLink size={16} />
           </button>
         </div>
       </div>

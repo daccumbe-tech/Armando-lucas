@@ -28,7 +28,9 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
         skills: role === 'talent' ? skillsArray : undefined,
         whatsapp: whatsapp.trim() || undefined,
         bio,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        followers: [],
+        following: []
       };
       await setDoc(doc(db, 'users', user.uid), updatedUser);
       onComplete(updatedUser);

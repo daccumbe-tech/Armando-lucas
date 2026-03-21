@@ -15,7 +15,9 @@
         "photoURL": { "type": "string", "format": "uri", "description": "Profile picture URL" },
         "whatsapp": { "type": "string", "description": "WhatsApp number" },
         "isFeatured": { "type": "boolean", "description": "Whether the talent is featured" },
-        "createdAt": { "type": "string", "format": "date-time", "description": "Account creation date" }
+        "createdAt": { "type": "string", "format": "date-time", "description": "Account creation date" },
+        "followers": { "type": "array", "items": { "type": "string" }, "description": "UIDs of followers" },
+        "following": { "type": "array", "items": { "type": "string" }, "description": "UIDs of followed users" }
       },
       "required": ["uid", "name", "email", "role"]
     },
@@ -32,7 +34,9 @@
         "description": { "type": "string", "description": "Project description" },
         "category": { "type": "string", "description": "Project category" },
         "imageUrl": { "type": "string", "format": "uri", "description": "Project image URL" },
+        "projectLink": { "type": "string", "format": "uri", "description": "External project link" },
         "likesCount": { "type": "integer", "description": "Number of likes" },
+        "commentsCount": { "type": "integer", "description": "Number of comments" },
         "rating": {
           "type": "object",
           "properties": {
@@ -72,6 +76,21 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "conversationId", "senderId", "text"]
+    },
+    "Comment": {
+      "title": "Comment",
+      "description": "A comment on a project.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "projectId": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userPhotoURL": { "type": "string", "format": "uri" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "projectId", "userId", "userName", "text"]
     }
   },
   "firestore": {
@@ -82,6 +101,10 @@
     "/projects/{projectId}": {
       "schema": "Project",
       "description": "Talent projects"
+    },
+    "/projects/{projectId}/comments/{commentId}": {
+      "schema": "Comment",
+      "description": "Comments on a project"
     },
     "/conversations/{conversationId}": {
       "schema": "Conversation",

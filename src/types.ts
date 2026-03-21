@@ -12,6 +12,8 @@ export interface UserProfile {
   whatsapp?: string;
   isFeatured?: boolean;
   createdAt?: string;
+  followers?: string[];
+  following?: string[];
 }
 
 export interface Project {
@@ -23,7 +25,9 @@ export interface Project {
   description: string;
   category: string;
   imageUrl?: string;
+  projectLink?: string;
   likesCount?: number;
+  commentsCount?: number;
   likedBy?: string[];
   rating?: {
     average: number;
@@ -32,6 +36,17 @@ export interface Project {
     ratedBy: string[];
   };
   createdAt: any; // Firestore Timestamp
+}
+
+export interface ProjectComment {
+  id: string;
+  projectId: string;
+  userId: string;
+  userName: string;
+  userPhotoURL?: string;
+  userRole?: string;
+  text: string;
+  createdAt: any;
 }
 
 export interface Conversation {

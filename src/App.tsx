@@ -21,7 +21,7 @@ import Auth from './components/Auth';
 import ProfileSetup from './components/ProfileSetup';
 import ProjectCard from './components/ProjectCard';
 import Chat from './components/Chat';
-import { UserProfile, Project, CATEGORIES } from './types';
+import { UserProfile, Project, CATEGORIES, ProjectComment } from './types';
 import Navbar from './components/Navbar';
 import { 
   Plus, 
@@ -37,7 +37,9 @@ import {
   Upload,
   Heart,
   ExternalLink,
-  Star
+  Star,
+  UserPlus,
+  UserMinus
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -54,19 +56,26 @@ export default function App() {
   const [showChat, setShowChat] = useState(false);
   const [chatRecipient, setChatRecipient] = useState<UserProfile | undefined>(undefined);
   const [featuredTalents, setFeaturedTalents] = useState<UserProfile[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [comments, setComments] = useState<ProjectComment[]>([]);
+  const [newComment, setNewComment] = useState('');
+  const [isSubmittingComment, setIsSubmittingComment] = useState(false);
 
   // New project form state
   const [newProject, setNewProject] = useState({
     title: '',
     description: '',
     category: CATEGORIES[0],
-    imageUrl: ''
+    imageUrl: '',
+    projectLink: ''
   });
 
   useEffect(() => {
     const q = query(collection(db, 'users'), where('isFeatured', '==', true), limit(5));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setFeaturedTalents(snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile)));
+    }, (error) => {
+      console.error("Error fetching featured talents:", error);
     });
     return () => unsubscribe();
   }, []);
@@ -85,40 +94,80 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+    let unsubscribeUser: () => void = () => {};
+
+    const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-        if (userDoc.exists()) {
-          setUser(userDoc.data() as UserProfile);
-        } else {
-          // New user, need setup
-          setUser({
-            uid: firebaseUser.uid,
-            name: firebaseUser.displayName || 'Anonymous',
-            email: firebaseUser.email || '',
-            role: 'talent', // Temporary
-            photoURL: firebaseUser.photoURL || ''
-          });
-          setCurrentPage('setup');
-        }
+        unsubscribeUser = onSnapshot(doc(db, 'users', firebaseUser.uid), (docSnap) => {
+          if (docSnap.exists()) {
+            setUser({ uid: firebaseUser.uid, ...docSnap.data() } as UserProfile);
+          } else {
+            setUser({
+              uid: firebaseUser.uid,
+              name: firebaseUser.displayName || 'Anonymous',
+              email: firebaseUser.email || '',
+              role: 'talent',
+              photoURL: firebaseUser.photoURL || ''
+            });
+            setCurrentPage('setup');
+          }
+          setLoading(false);
+        });
       } else {
         setUser(null);
+        setLoading(false);
       }
-      setLoading(false);
+    });
+
+    return () => {
+      unsubscribeAuth();
+      unsubscribeUser();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!viewingProfile) return;
+
+    const unsubscribe = onSnapshot(doc(db, 'users', viewingProfile.uid), (docSnap) => {
+      if (docSnap.exists()) {
+        setViewingProfile({ uid: docSnap.id, ...docSnap.data() } as UserProfile);
+      }
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [viewingProfile?.uid]);
 
   useEffect(() => {
     const q = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const projs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project));
       setProjects(projs);
+    }, (error) => {
+      console.error("Error fetching projects:", error);
     });
 
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!selectedProject) {
+      setComments([]);
+      return;
+    }
+
+    const q = query(
+      collection(db, 'projects', selectedProject.id, 'comments'),
+      orderBy('createdAt', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setComments(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ProjectComment)));
+    }, (error) => {
+      console.error("Error fetching comments:", error);
+    });
+
+    return () => unsubscribe();
+  }, [selectedProject]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -135,18 +184,115 @@ export default function App() {
     e.preventDefault();
     if (!user) return;
 
+    setIsSubmitting(true);
     try {
       await addDoc(collection(db, 'projects'), {
         ...newProject,
         talentId: user.uid,
         talentName: user.name,
         talentEmail: user.email,
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
+        likesCount: 0,
+        commentsCount: 0,
+        likedBy: [],
+        rating: { average: 0, count: 0, total: 0, ratedBy: [] }
       });
       setShowAddModal(false);
-      setNewProject({ title: '', description: '', category: CATEGORIES[0], imageUrl: '' });
+      setNewProject({ title: '', description: '', category: CATEGORIES[0], imageUrl: '', projectLink: '' });
     } catch (err) {
       console.error('Error adding project:', err);
+      alert('Erro ao publicar projeto. Tente novamente.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleFollowUser = async (targetUserId: string) => {
+    if (!user) return;
+
+    const currentUserRef = doc(db, 'users', user.uid);
+    const targetUserRef = doc(db, 'users', targetUserId);
+
+    const isFollowing = user.following?.includes(targetUserId);
+
+    try {
+      await runTransaction(db, async (transaction) => {
+        const currentUserDoc = await transaction.get(currentUserRef);
+        const targetUserDoc = await transaction.get(targetUserRef);
+
+        if (!currentUserDoc.exists() || !targetUserDoc.exists()) return;
+
+        const currentUserData = currentUserDoc.data() as UserProfile;
+        const targetUserData = targetUserDoc.data() as UserProfile;
+
+        const currentFollowing = currentUserData.following || [];
+        const targetFollowers = targetUserData.followers || [];
+
+        if (isFollowing) {
+          // Unfollow
+          transaction.update(currentUserRef, {
+            following: currentFollowing.filter(id => id !== targetUserId)
+          });
+          transaction.update(targetUserRef, {
+            followers: targetFollowers.filter(id => id !== user.uid)
+          });
+        } else {
+          // Follow
+          transaction.update(currentUserRef, {
+            following: [...currentFollowing, targetUserId]
+          });
+          transaction.update(targetUserRef, {
+            followers: [...targetFollowers, user.uid]
+          });
+        }
+      });
+    } catch (err) {
+      console.error('Error following/unfollowing user:', err);
+    }
+  };
+
+  const handleAddComment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !selectedProject || !newComment.trim()) return;
+
+    setIsSubmittingComment(true);
+    try {
+      await addDoc(collection(db, 'projects', selectedProject.id, 'comments'), {
+        projectId: selectedProject.id,
+        userId: user.uid,
+        userName: user.name,
+        userPhotoURL: user.photoURL || '',
+        userRole: user.role,
+        text: newComment.trim(),
+        createdAt: serverTimestamp()
+      });
+      
+      // Update comments count
+      const projectRef = doc(db, 'projects', selectedProject.id);
+      await updateDoc(projectRef, {
+        commentsCount: (selectedProject.commentsCount || 0) + 1
+      });
+
+      setNewComment('');
+    } catch (error) {
+      console.error("Error adding comment:", error);
+    } finally {
+      setIsSubmittingComment(false);
+    }
+  };
+
+  const handleDeleteComment = async (commentId: string) => {
+    if (!selectedProject) return;
+    try {
+      await deleteDoc(doc(db, 'projects', selectedProject.id, 'comments', commentId));
+      
+      // Update comments count
+      const projectRef = doc(db, 'projects', selectedProject.id);
+      await updateDoc(projectRef, {
+        commentsCount: Math.max(0, (selectedProject.commentsCount || 1) - 1)
+      });
+    } catch (error) {
+      console.error("Error deleting comment:", error);
     }
   };
 
@@ -314,6 +460,17 @@ export default function App() {
                   <p className="text-gray-600 text-lg mb-6 leading-relaxed max-w-2xl">
                     {viewingProfile.bio || 'Sem descrição disponível.'}
                   </p>
+
+                  <div className="flex gap-8 mb-8">
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-gray-900">{viewingProfile.followers?.length || 0}</p>
+                      <p className="text-xs text-gray-500 uppercase tracking-wider font-bold">Seguidores</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-gray-900">{viewingProfile.following?.length || 0}</p>
+                      <p className="text-xs text-gray-500 uppercase tracking-wider font-bold">Seguindo</p>
+                    </div>
+                  </div>
                   
                   {viewingProfile.skills && viewingProfile.skills.length > 0 && (
                     <div className="flex flex-wrap gap-2 mb-8">
@@ -325,28 +482,53 @@ export default function App() {
                     </div>
                   )}
 
-                  {user?.role === 'investor' && viewingProfile.role === 'talent' && (
-                    <div className="flex flex-wrap gap-4">
+                  <div className="flex flex-wrap gap-4">
+                    {user && user.uid !== viewingProfile.uid && (
                       <button 
-                        onClick={() => openChatWith(viewingProfile)}
-                        className="inline-flex items-center gap-3 bg-indigo-600 text-white px-8 py-4 rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
+                        onClick={() => handleFollowUser(viewingProfile.uid)}
+                        className={`inline-flex items-center gap-3 px-8 py-4 rounded-2xl font-bold transition-all shadow-lg ${
+                          user.following?.includes(viewingProfile.uid)
+                            ? 'bg-gray-100 text-gray-600 hover:bg-gray-200 shadow-gray-100'
+                            : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-100'
+                        }`}
                       >
-                        <MessageSquare size={20} />
-                        Enviar Mensagem
+                        {user.following?.includes(viewingProfile.uid) ? (
+                          <>
+                            <UserMinus size={20} />
+                            Deixar de Seguir
+                          </>
+                        ) : (
+                          <>
+                            <UserPlus size={20} />
+                            Seguir
+                          </>
+                        )}
                       </button>
-                      {viewingProfile.whatsapp && (
-                        <a 
-                          href={`https://wa.me/${viewingProfile.whatsapp.replace(/\D/g, '')}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-3 bg-green-500 text-white px-8 py-4 rounded-2xl font-bold hover:bg-green-600 transition-all shadow-lg shadow-green-100"
+                    )}
+
+                    {user?.role === 'investor' && viewingProfile.role === 'talent' && (
+                      <>
+                        <button 
+                          onClick={() => openChatWith(viewingProfile)}
+                          className="inline-flex items-center gap-3 bg-white border-2 border-indigo-600 text-indigo-600 px-8 py-4 rounded-2xl font-bold hover:bg-indigo-50 transition-all shadow-lg shadow-indigo-50"
                         >
-                          <ExternalLink size={20} />
-                          WhatsApp
-                        </a>
-                      )}
-                    </div>
-                  )}
+                          <MessageSquare size={20} />
+                          Enviar Mensagem
+                        </button>
+                        {viewingProfile.whatsapp && (
+                          <a 
+                            href={`https://wa.me/${viewingProfile.whatsapp.replace(/\D/g, '')}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-3 bg-green-500 text-white px-8 py-4 rounded-2xl font-bold hover:bg-green-600 transition-all shadow-lg shadow-green-100"
+                          >
+                            <ExternalLink size={20} />
+                            WhatsApp
+                          </a>
+                        )}
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -573,6 +755,19 @@ export default function App() {
                     </span>
                   </div>
                   <h2 className="text-3xl font-bold text-gray-900 mb-4">{selectedProject.title}</h2>
+                  
+                  {selectedProject.projectLink && (
+                    <a 
+                      href={selectedProject.projectLink} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl text-sm font-bold hover:bg-indigo-100 transition-all mb-6"
+                    >
+                      <ExternalLink size={16} />
+                      Ver Projeto Ao Vivo
+                    </a>
+                  )}
+
                   <div className="flex items-center gap-3 mb-8 p-4 bg-gray-50 rounded-2xl">
                     <div className="w-12 h-12 bg-indigo-600 rounded-full flex items-center justify-center text-white font-bold text-xl cursor-pointer" onClick={() => handleViewProfile(selectedProject.talentId)}>
                       {selectedProject.talentName.charAt(0)}
@@ -591,6 +786,103 @@ export default function App() {
                     <p className="text-gray-600 leading-relaxed whitespace-pre-wrap">
                       {selectedProject.description}
                     </p>
+                  </div>
+
+                  {/* Comments Section */}
+                  <div className="border-t border-gray-100 pt-8 mt-8">
+                    <h4 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
+                      <MessageSquare size={20} className="text-indigo-600" />
+                      Comentários ({comments.length})
+                    </h4>
+
+                    {user ? (
+                      <form onSubmit={handleAddComment} className="mb-8">
+                        <div className="flex gap-4">
+                          <div className="w-10 h-10 bg-indigo-600 rounded-full flex-shrink-0 flex items-center justify-center text-white font-bold text-sm overflow-hidden">
+                            {user.photoURL ? (
+                              <img src={user.photoURL} alt={user.name} className="w-full h-full object-cover" />
+                            ) : (
+                              user.name.charAt(0)
+                            )}
+                          </div>
+                          <div className="flex-1 space-y-3">
+                            <textarea
+                              value={newComment}
+                              onChange={(e) => setNewComment(e.target.value)}
+                              placeholder="Adicione um comentário..."
+                              className="w-full p-4 rounded-2xl bg-gray-50 border border-gray-100 focus:ring-2 focus:ring-indigo-500 outline-none h-24 resize-none transition-all text-sm"
+                            />
+                            <div className="flex justify-end">
+                              <button
+                                type="submit"
+                                disabled={isSubmittingComment || !newComment.trim()}
+                                className="bg-indigo-600 text-white px-6 py-2 rounded-xl font-bold text-sm hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md shadow-indigo-100"
+                              >
+                                {isSubmittingComment ? 'Enviando...' : 'Comentar'}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </form>
+                    ) : (
+                      <div className="bg-gray-50 p-4 rounded-2xl text-center mb-8">
+                        <p className="text-sm text-gray-500">
+                          Faça login para deixar um comentário.
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="space-y-6">
+                      {comments.map((comment) => (
+                        <div key={comment.id} className="flex gap-4 group">
+                          <div className="w-10 h-10 bg-gray-200 rounded-full flex-shrink-0 flex items-center justify-center text-gray-500 font-bold text-sm overflow-hidden">
+                            {comment.userPhotoURL ? (
+                              <img src={comment.userPhotoURL} alt={comment.userName} className="w-full h-full object-cover" />
+                            ) : (
+                              comment.userName.charAt(0)
+                            )}
+                          </div>
+                          <div className="flex-1">
+                            <div className="bg-gray-50 p-4 rounded-2xl relative">
+                              <div className="flex items-center justify-between mb-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-bold text-sm text-gray-900">{comment.userName}</span>
+                                  {comment.userRole && (
+                                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                                      comment.userRole === 'talent' ? 'bg-indigo-50 text-indigo-600' : 'bg-emerald-50 text-emerald-600'
+                                    }`}>
+                                      {comment.userRole === 'talent' ? 'Talento' : 'Investidor'}
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="text-[10px] text-gray-400">
+                                  {comment.createdAt?.toDate?.() 
+                                    ? comment.createdAt.toDate().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) 
+                                    : 'Agora mesmo'}
+                                </span>
+                              </div>
+                              <p className="text-sm text-gray-600 leading-relaxed">
+                                {comment.text}
+                              </p>
+                              {(user?.uid === comment.userId || user?.uid === selectedProject.talentId) && (
+                                <button
+                                  onClick={() => handleDeleteComment(comment.id)}
+                                  className="absolute top-2 right-2 p-1 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                                  title="Excluir comentário"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      {comments.length === 0 && (
+                        <div className="text-center py-8 text-gray-400">
+                          <p className="text-sm italic">Nenhum comentário ainda. Seja o primeiro!</p>
+                        </div>
+                      )}
+                    </div>
                   </div>
                   
                   {user?.role === 'investor' && (
@@ -633,87 +925,139 @@ export default function App() {
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="relative bg-white w-full max-w-xl rounded-3xl shadow-2xl p-8"
+              className="relative bg-white w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl p-6 sm:p-8"
             >
-              <div className="flex items-center justify-between mb-8">
-                <h3 className="text-2xl font-bold text-gray-900">Novo Projeto</h3>
-                <button onClick={() => setShowAddModal(false)} className="text-gray-400 hover:text-gray-900">
-                  <X size={24} />
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h3 className="text-2xl font-bold text-gray-900">Publicar Novo Trabalho</h3>
+                  <p className="text-sm text-gray-500">Mostre seu talento para o mundo</p>
+                </div>
+                <button onClick={() => setShowAddModal(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+                  <X size={24} className="text-gray-400" />
                 </button>
               </div>
 
-              <form onSubmit={handleAddProject} className="space-y-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Título do Projeto</label>
+              <form onSubmit={handleAddProject} className="space-y-5">
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-gray-700 ml-1">Título do Projeto</label>
                   <input 
                     required
                     type="text" 
                     value={newProject.title}
                     onChange={(e) => setNewProject({...newProject, title: e.target.value})}
                     placeholder="Ex: App de Gestão Financeira"
-                    className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+                    className="w-full p-4 rounded-2xl bg-gray-50 border border-gray-100 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Categoria</label>
-                  <select 
-                    value={newProject.category}
-                    onChange={(e) => setNewProject({...newProject, category: e.target.value})}
-                    className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none"
-                  >
-                    {CATEGORIES.map(cat => (
-                      <option key={cat} value={cat}>{cat}</option>
-                    ))}
-                  </select>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-bold text-gray-700 ml-1">Categoria</label>
+                    <select 
+                      value={newProject.category}
+                      onChange={(e) => setNewProject({...newProject, category: e.target.value})}
+                      className="w-full p-4 rounded-2xl bg-gray-50 border border-gray-100 focus:ring-2 focus:ring-indigo-500 outline-none transition-all appearance-none"
+                    >
+                      {CATEGORIES.map(cat => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Descrição</label>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-gray-700 ml-1">Descrição Detalhada</label>
                   <textarea 
                     required
                     value={newProject.description}
                     onChange={(e) => setNewProject({...newProject, description: e.target.value})}
                     placeholder="Descreva seu projeto, tecnologias usadas, objetivos..."
-                    className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none h-32 resize-none"
+                    className="w-full p-4 rounded-2xl bg-gray-50 border border-gray-100 focus:ring-2 focus:ring-indigo-500 outline-none h-32 resize-none transition-all"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Imagem do Projeto</label>
-                  <div className="flex flex-col gap-4">
-                    <div className="flex items-center gap-4">
-                      <label className="flex-1 flex items-center justify-center gap-2 bg-gray-50 border-2 border-dashed border-gray-200 p-4 rounded-2xl cursor-pointer hover:bg-gray-100 transition-all">
-                        <Upload size={20} className="text-gray-400" />
-                        <span className="text-sm text-gray-500 font-medium">Upload de Imagem</span>
-                        <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
-                      </label>
-                      <span className="text-gray-400 text-xs font-bold uppercase tracking-widest">OU</span>
-                      <input 
-                        type="url" 
-                        value={newProject.imageUrl}
-                        onChange={(e) => setNewProject({...newProject, imageUrl: e.target.value})}
-                        placeholder="URL da imagem..."
-                        className="flex-1 p-4 rounded-2xl bg-gray-50 border border-gray-100 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-                      />
-                    </div>
-                    {newProject.imageUrl && (
-                      <div className="relative aspect-video rounded-2xl overflow-hidden border border-gray-100 group">
+
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-gray-700 ml-1">Link do Projeto (Opcional)</label>
+                  <input 
+                    type="url" 
+                    value={newProject.projectLink}
+                    onChange={(e) => setNewProject({...newProject, projectLink: e.target.value})}
+                    placeholder="Ex: https://meuprojeto.com ou https://github.com/..."
+                    className="w-full p-4 rounded-2xl bg-gray-50 border border-gray-100 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-gray-700 ml-1">Imagem de Capa</label>
+                  <div className="space-y-4">
+                    {!newProject.imageUrl ? (
+                      <div className="grid grid-cols-1 gap-3">
+                        <label className="flex flex-col items-center justify-center gap-3 bg-gray-50 border-2 border-dashed border-gray-200 p-8 rounded-2xl cursor-pointer hover:bg-gray-100 hover:border-indigo-300 transition-all group">
+                          <div className="w-12 h-12 bg-white rounded-xl shadow-sm flex items-center justify-center text-gray-400 group-hover:text-indigo-600 transition-colors">
+                            <Upload size={24} />
+                          </div>
+                          <div className="text-center">
+                            <span className="block text-sm font-bold text-gray-700">Upload de Imagem</span>
+                            <span className="text-xs text-gray-400">PNG, JPG até 5MB</span>
+                          </div>
+                          <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+                        </label>
+                        <div className="relative flex items-center justify-center">
+                          <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-100"></div></div>
+                          <span className="relative px-4 bg-white text-[10px] font-bold text-gray-400 uppercase tracking-widest">OU</span>
+                        </div>
+                        <input 
+                          type="url" 
+                          value={newProject.imageUrl}
+                          onChange={(e) => setNewProject({...newProject, imageUrl: e.target.value})}
+                          placeholder="Cole o link de uma imagem aqui..."
+                          className="w-full p-4 rounded-2xl bg-gray-50 border border-gray-100 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                        />
+                      </div>
+                    ) : (
+                      <div className="relative aspect-video rounded-2xl overflow-hidden border border-gray-100 group shadow-sm">
                         <img src={newProject.imageUrl} alt="Preview" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                        <button 
-                          type="button"
-                          onClick={() => setNewProject({...newProject, imageUrl: ''})}
-                          className="absolute top-4 right-4 p-2 bg-white/90 backdrop-blur-sm text-red-600 rounded-full shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                          <button 
+                            type="button"
+                            onClick={() => setNewProject({...newProject, imageUrl: ''})}
+                            className="p-3 bg-white text-red-600 rounded-2xl font-bold flex items-center gap-2 hover:bg-red-50 transition-colors"
+                          >
+                            <Trash2 size={18} />
+                            Remover Imagem
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
                 </div>
-                <button 
-                  type="submit"
-                  className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
-                >
-                  Publicar Projeto
-                </button>
+
+                <div className="flex gap-3 pt-4">
+                  <button 
+                    type="button"
+                    onClick={() => setShowAddModal(false)}
+                    className="flex-1 py-4 rounded-2xl font-bold text-gray-500 hover:bg-gray-50 transition-all"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="flex-[2] bg-indigo-600 text-white py-4 rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Publicando...
+                      </>
+                    ) : (
+                      <>
+                        <Plus size={20} />
+                        Publicar Projeto
+                      </>
+                    )}
+                  </button>
+                </div>
               </form>
             </motion.div>
           </div>
