@@ -14,10 +14,15 @@
         "skills": { "type": "array", "items": { "type": "string" } },
         "photoURL": { "type": "string", "format": "uri", "description": "Profile picture URL" },
         "whatsapp": { "type": "string", "description": "WhatsApp number" },
+        "location": { "type": "string", "description": "User location (City/State)" },
         "isFeatured": { "type": "boolean", "description": "Whether the talent is featured" },
         "createdAt": { "type": "string", "format": "date-time", "description": "Account creation date" },
         "followers": { "type": "array", "items": { "type": "string" }, "description": "UIDs of followers" },
-        "following": { "type": "array", "items": { "type": "string" }, "description": "UIDs of followed users" }
+        "following": { "type": "array", "items": { "type": "string" }, "description": "UIDs of followed users" },
+        "company": { "type": "string", "description": "Company/Organization for investors" },
+        "investmentFocus": { "type": "array", "items": { "type": "string" }, "description": "Categories the investor is interested in" },
+        "interests": { "type": "array", "items": { "type": "string" }, "description": "General interests/categories" },
+        "viewedProjects": { "type": "array", "items": { "type": "string" }, "description": "IDs of recently viewed projects" }
       },
       "required": ["uid", "name", "email", "role"]
     },
@@ -30,6 +35,7 @@
         "talentId": { "type": "string", "description": "UID of the talent who created this" },
         "talentName": { "type": "string", "description": "Name of the talent" },
         "talentEmail": { "type": "string", "description": "Email of the talent" },
+        "talentLocation": { "type": "string", "description": "Location of the talent" },
         "title": { "type": "string", "description": "Project title" },
         "description": { "type": "string", "description": "Project description" },
         "category": { "type": "string", "description": "Project category" },
@@ -37,6 +43,7 @@
         "projectLink": { "type": "string", "format": "uri", "description": "External project link" },
         "likesCount": { "type": "integer", "description": "Number of likes" },
         "commentsCount": { "type": "integer", "description": "Number of comments" },
+        "status": { "type": "string", "enum": ["published", "draft"], "description": "Publication status" },
         "rating": {
           "type": "object",
           "properties": {
@@ -46,6 +53,7 @@
             "ratedBy": { "type": "array", "items": { "type": "string" }, "description": "UIDs of users who rated" }
           }
         },
+        "deadline": { "type": "string", "format": "date-time", "description": "Project deadline" },
         "createdAt": { "type": "string", "format": "date-time", "description": "Publication date" }
       },
       "required": ["id", "talentId", "title", "description", "category"]
@@ -91,6 +99,24 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "projectId", "userId", "userName", "text"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "A user notification.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "recipientId": { "type": "string", "description": "UID of the user receiving the notification" },
+        "senderId": { "type": "string", "description": "UID of the user who triggered the notification" },
+        "senderName": { "type": "string", "description": "Name of the sender" },
+        "senderPhotoURL": { "type": "string", "format": "uri", "description": "Photo URL of the sender" },
+        "type": { "type": "string", "enum": ["rating", "like", "comment"] },
+        "projectTitle": { "type": "string", "description": "Title of the project" },
+        "projectId": { "type": "string", "description": "ID of the project" },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "recipientId", "senderId", "senderName", "projectTitle", "projectId", "read"]
     }
   },
   "firestore": {
@@ -113,6 +139,10 @@
     "/conversations/{conversationId}/messages/{messageId}": {
       "schema": "Message",
       "description": "Messages within a conversation"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "User notifications"
     }
   }
 }

@@ -24,7 +24,21 @@
 //   - description: string (required) - Project description
 //   - category: string (required) - Project category
 //   - imageUrl: string (optional) - Project image URL
+//   - deadline: timestamp (optional) - Project deadline
 //   - createdAt: timestamp (required) - Publication date
+//
+// Collection: notifications
+// Document ID: {notificationId}
+// Fields:
+//   - recipientId: string (required) - UID of the user receiving the notification
+//   - senderId: string (required) - UID of the user who triggered the notification
+//   - senderName: string (required) - Name of the sender
+//   - senderPhotoURL: string (optional) - Photo URL of the sender
+//   - type: string (required, enum: ['like', 'comment', 'rating']) - Type of notification
+//   - projectTitle: string (required) - Title of the project
+//   - projectId: string (required) - ID of the project
+//   - read: boolean (required) - Whether the notification has been read
+//   - createdAt: timestamp (required) - When the notification was created
 //
 // ===============================================================
 
@@ -54,8 +68,13 @@ service cloud.firestore {
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.email is string && data.email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$") &&
              data.role in ['talent', 'investor', 'admin'] &&
+             (!('location' in data) || data.location is string) &&
              (!('followers' in data) || data.followers is list) &&
-             (!('following' in data) || data.following is list);
+             (!('following' in data) || data.following is list) &&
+             (!('company' in data) || data.company is string) &&
+             (!('investmentFocus' in data) || data.investmentFocus is list) &&
+             (!('interests' in data) || data.interests is list) &&
+             (!('viewedProjects' in data) || data.viewedProjects is list);
     }
 
     function isValidProject(data) {
@@ -67,6 +86,9 @@ service cloud.firestore {
              data.description is string && data.description.size() > 0 && data.description.size() < 5000 &&
              data.category is string &&
              data.createdAt is timestamp &&
+             (!('deadline' in data) || data.deadline == null || data.deadline is timestamp) &&
+             (!('talentLocation' in data) || data.talentLocation is string) &&
+             (!('status' in data) || data.status in ['published', 'draft']) &&
              (!('likesCount' in data) || data.likesCount is number) &&
              (!('commentsCount' in data) || data.commentsCount is number) &&
              (!('likedBy' in data) || data.likedBy is list) &&
@@ -105,7 +127,7 @@ service cloud.firestore {
       allow create: if isAuthenticated() && isValidProject(request.resource.data) && request.resource.data.talentId == request.auth.uid;
       allow update: if (isDocOwner() && isValidProject(request.resource.data) && request.resource.data.talentId == resource.data.talentId) ||
                     (isAuthenticated() && 
-                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount', 'likedBy', 'rating', 'commentsCount']) &&
+                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount', 'likedBy', 'rating', 'commentsCount', 'status']) &&
                      // Basic validation for rating update
                      (!('rating' in request.resource.data) || (
                        (!('rating' in resource.data) && request.resource.data.rating.count == 1) ||
@@ -134,6 +156,13 @@ service cloud.firestore {
         allow read: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
         allow create: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants && request.resource.data.senderId == request.auth.uid;
       }
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() && resource.data.recipientId == request.auth.uid;
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && resource.data.recipientId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow delete: if isAuthenticated() && resource.data.recipientId == request.auth.uid;
     }
   }
 }

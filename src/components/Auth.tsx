@@ -1,9 +1,9 @@
 import { auth, db } from '../firebase';
-import { GoogleAuthProvider, signInWithPopup, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth';
+import { GoogleAuthProvider, FacebookAuthProvider, signInWithPopup, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, fetchSignInMethodsForEmail, linkWithPopup } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { useState } from 'react';
 import { UserProfile } from '../types';
-import { Mail, Lock, User, LogIn, UserPlus } from 'lucide-react';
+import { Mail, Lock, User, LogIn, UserPlus, Facebook } from 'lucide-react';
 
 interface AuthProps {
   onSuccess: (user: UserProfile) => void;
@@ -37,16 +37,34 @@ export default function Auth({ onSuccess }: AuthProps) {
     }
   };
 
-  const handleGoogleSignIn = async () => {
+  const handleSocialSignIn = async (providerType: 'google' | 'facebook') => {
     setLoading(true);
     setError(null);
     try {
-      const provider = new GoogleAuthProvider();
+      const provider = providerType === 'google' ? new GoogleAuthProvider() : new FacebookAuthProvider();
+      
+      // Force account selection for Google to avoid some common issues
+      if (provider instanceof GoogleAuthProvider) {
+        provider.setCustomParameters({ prompt: 'select_account' });
+      }
+      
       const result = await signInWithPopup(auth, provider);
-      await handleAuthSuccess(result.user);
+      if (result.user) {
+        await handleAuthSuccess(result.user);
+      }
     } catch (err: any) {
       console.error('Auth error:', err);
-      setError('Falha ao entrar com Google. Tente novamente.');
+      if (err.code === 'auth/popup-blocked') {
+        setError('O popup foi bloqueado pelo navegador. Por favor, permita popups para este site.');
+      } else if (err.code === 'auth/popup-closed-by-user') {
+        setError('O login foi cancelado. Tente novamente.');
+      } else if (err.code === 'auth/account-exists-with-different-credential') {
+        setError('Já existe uma conta com este e-mail usando outro método de login. Tente entrar com o método original.');
+      } else if (err.code === 'auth/unauthorized-domain') {
+        setError('Este domínio não está autorizado para login social. Use e-mail e senha.');
+      } else {
+        setError(`Falha ao entrar com ${providerType === 'google' ? 'Google' : 'Facebook'}. Tente usar e-mail e senha.`);
+      }
     } finally {
       setLoading(false);
     }
@@ -153,14 +171,25 @@ export default function Auth({ onSuccess }: AuthProps) {
         <div className="flex-1 h-px bg-gray-100"></div>
       </div>
 
-      <button
-        onClick={handleGoogleSignIn}
-        disabled={loading}
-        className="w-full flex items-center justify-center gap-3 bg-white border border-gray-200 py-3 px-4 rounded-xl font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
-      >
-        <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-5 h-5" />
-        Entrar com Google
-      </button>
+      <div className="w-full space-y-3">
+        <button
+          onClick={() => handleSocialSignIn('google')}
+          disabled={loading}
+          className="w-full flex items-center justify-center gap-3 bg-white border border-gray-200 py-3 px-4 rounded-xl font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
+        >
+          <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-5 h-5" />
+          Entrar com Google
+        </button>
+
+        <button
+          onClick={() => handleSocialSignIn('facebook')}
+          disabled={loading}
+          className="w-full flex items-center justify-center gap-3 bg-[#1877F2] text-white py-3 px-4 rounded-xl font-medium hover:bg-[#166fe5] transition-colors disabled:opacity-50"
+        >
+          <Facebook size={20} fill="white" />
+          Entrar com Facebook
+        </button>
+      </div>
 
       <button
         onClick={() => setIsSignUp(!isSignUp)}

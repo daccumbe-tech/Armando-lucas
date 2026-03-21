@@ -10,10 +10,27 @@ export interface UserProfile {
   skills?: string[];
   photoURL?: string;
   whatsapp?: string;
+  location?: string;
+  city?: string;
+  country?: string;
+  rating?: {
+    average: number;
+    count: number;
+    total: number;
+    ratedBy: string[];
+  };
   isFeatured?: boolean;
+  isVerified?: boolean;
+  viewsCount?: number;
+  contactsCount?: number;
   createdAt?: string;
   followers?: string[];
   following?: string[];
+  // New fields for investor management and recommendations
+  company?: string;
+  investmentFocus?: string[];
+  interests?: string[];
+  viewedProjects?: string[];
 }
 
 export interface Project {
@@ -21,6 +38,7 @@ export interface Project {
   talentId: string;
   talentName: string;
   talentEmail: string;
+  talentLocation?: string;
   title: string;
   description: string;
   category: string;
@@ -29,12 +47,14 @@ export interface Project {
   likesCount?: number;
   commentsCount?: number;
   likedBy?: string[];
+  status?: 'published' | 'draft';
   rating?: {
     average: number;
     count: number;
     total: number;
     ratedBy: string[];
   };
+  deadline?: any; // Firestore Timestamp
   createdAt: any; // Firestore Timestamp
 }
 
@@ -54,6 +74,7 @@ export interface Conversation {
   participants: string[];
   participantNames: { [uid: string]: string };
   lastMessage?: string;
+  unreadCounts?: { [uid: string]: number };
   updatedAt: any;
 }
 
@@ -63,6 +84,19 @@ export interface Message {
   senderId: string;
   senderName: string;
   text: string;
+  createdAt: any;
+}
+
+export interface AppNotification {
+  id: string;
+  recipientId: string;
+  senderId: string;
+  senderName: string;
+  senderPhotoURL?: string;
+  type: 'rating' | 'like' | 'comment';
+  projectTitle: string;
+  projectId: string;
+  read: boolean;
   createdAt: any;
 }
 
