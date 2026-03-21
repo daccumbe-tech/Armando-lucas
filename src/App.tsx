@@ -1,6 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { auth, db } from './firebase';
-import { onAuthStateChanged, deleteUser, reauthenticateWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import { 
+  onAuthStateChanged, 
+  deleteUser, 
+  reauthenticateWithPopup, 
+  reauthenticateWithCredential,
+  GoogleAuthProvider, 
+  FacebookAuthProvider, 
+  EmailAuthProvider 
+} from 'firebase/auth';
 import { 
   collection, 
   query, 
@@ -19,7 +27,8 @@ import {
   Timestamp,
   getDocs,
   startAfter,
-  writeBatch
+  writeBatch,
+  collectionGroup
 } from 'firebase/firestore';
 import Auth from './components/Auth';
 import ProfileSetup from './components/ProfileSetup';
@@ -738,15 +747,29 @@ export default function App() {
     window.open(`https://wa.me/${recipient.whatsapp.replace(/\D/g, '')}`, '_blank');
   };
 
-  const handleDeleteAccount = async () => {
+  const handleDeleteAccount = async (password?: string) => {
     if (!auth.currentUser || !user) return;
 
     try {
       // 1. Re-authenticate user (required for sensitive operations like deleteUser)
-      const provider = new GoogleAuthProvider();
-      await reauthenticateWithPopup(auth.currentUser, provider);
+      const currentUser = auth.currentUser;
+      const providerId = currentUser.providerData[0]?.providerId;
 
-      const uid = auth.currentUser.uid;
+      if (providerId === 'password') {
+        if (!password) {
+          throw new Error('PASSWORD_REQUIRED');
+        }
+        const credential = EmailAuthProvider.credential(currentUser.email!, password);
+        await reauthenticateWithCredential(currentUser, credential);
+      } else if (providerId === 'google.com') {
+        const provider = new GoogleAuthProvider();
+        await reauthenticateWithPopup(currentUser, provider);
+      } else if (providerId === 'facebook.com') {
+        const provider = new FacebookAuthProvider();
+        await reauthenticateWithPopup(currentUser, provider);
+      }
+
+      const uid = currentUser.uid;
       const batch = writeBatch(db);
 
       // 2. Delete user's projects and their comments
@@ -763,7 +786,14 @@ export default function App() {
         batch.delete(projectDoc.ref);
       }
 
-      // 3. Delete user's notifications (received and sent)
+      // 3. Delete user's comments on other projects
+      const userCommentsQuery = query(collectionGroup(db, 'comments'), where('userId', '==', uid));
+      const userCommentsSnapshot = await getDocs(userCommentsQuery);
+      userCommentsSnapshot.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
+
+      // 4. Delete user's notifications (received and sent)
       const receivedNotificationsQuery = query(collection(db, 'notifications'), where('recipientId', '==', uid));
       const receivedNotificationsSnapshot = await getDocs(receivedNotificationsQuery);
       receivedNotificationsSnapshot.forEach((doc) => {
@@ -776,23 +806,30 @@ export default function App() {
         batch.delete(doc.ref);
       });
 
-      // 4. Delete user's conversations
+      // 5. Delete user's conversations and messages
       const conversationsQuery = query(collection(db, 'conversations'), where('participants', 'array-contains', uid));
       const conversationsSnapshot = await getDocs(conversationsQuery);
-      conversationsSnapshot.forEach((doc) => {
-        batch.delete(doc.ref);
-      });
+      
+      for (const convDoc of conversationsSnapshot.docs) {
+        // Delete messages subcollection
+        const messagesSnapshot = await getDocs(collection(db, 'conversations', convDoc.id, 'messages'));
+        messagesSnapshot.forEach((msgDoc) => {
+          batch.delete(msgDoc.ref);
+        });
+        // Delete the conversation itself
+        batch.delete(convDoc.ref);
+      }
 
-      // 5. Delete user profile
+      // 6. Delete user profile
       batch.delete(doc(db, 'users', uid));
 
       // Commit all Firestore deletions
       await batch.commit();
 
-      // 6. Delete Firebase Auth user
-      await deleteUser(auth.currentUser);
+      // 7. Delete Firebase Auth user
+      await deleteUser(currentUser);
 
-      // 7. Show success message and redirect
+      // 8. Show success message and redirect
       setShowDeleteSuccess(true);
       setTimeout(() => {
         setShowDeleteSuccess(false);
@@ -802,10 +839,12 @@ export default function App() {
 
     } catch (error: any) {
       console.error('Error deleting account:', error);
-      if (error.code === 'auth/requires-recent-login') {
-        alert('Para sua segurança, esta ação requer uma autenticação recente. Por favor, faça login novamente.');
+      if (error.message === 'PASSWORD_REQUIRED') {
+        throw error; // Re-throw to be handled by the component
+      } else if (error.code === 'auth/requires-recent-login' || error.code === 'auth/wrong-password') {
+        throw new Error('AUTH_FAILED');
       } else {
-        alert('Ocorreu um erro ao excluir sua conta. Por favor, tente novamente mais tarde.');
+        throw new Error('DELETE_FAILED');
       }
     }
   };

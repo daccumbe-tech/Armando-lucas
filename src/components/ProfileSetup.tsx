@@ -9,7 +9,7 @@ import { linkWithPopup, fetchSignInMethodsForEmail } from 'firebase/auth';
 interface ProfileSetupProps {
   user: UserProfile;
   onComplete: (user: UserProfile) => void;
-  onDeleteAccount: () => Promise<void>;
+  onDeleteAccount: (password?: string) => Promise<void>;
 }
 
 export default function ProfileSetup({ user, onComplete, onDeleteAccount }: ProfileSetupProps) {
@@ -28,6 +28,10 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount }: Prof
   const [isDeleting, setIsDeleting] = useState(false);
   const [linkedProviders, setLinkedProviders] = useState<string[]>([]);
   const [linkError, setLinkError] = useState<string | null>(null);
+  const [reauthPassword, setReauthPassword] = useState('');
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const isEmailUser = auth.currentUser?.providerData[0]?.providerId === 'password';
 
   useEffect(() => {
     if (auth.currentUser) {
@@ -358,20 +362,47 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount }: Prof
               <p className="text-gray-500 text-center mb-8">
                 Esta ação é <span className="font-bold text-red-600">irreversível</span>. Todos os seus dados serão apagados permanentemente dos nossos servidores.
               </p>
+
+              {isEmailUser && (
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-2 text-left">Confirme sua senha</label>
+                  <input
+                    type="password"
+                    value={reauthPassword}
+                    onChange={(e) => setReauthPassword(e.target.value)}
+                    placeholder="Sua senha atual"
+                    className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-red-500 outline-none"
+                  />
+                </div>
+              )}
+              
+              {deleteError && (
+                <p className="mb-4 text-sm text-red-600 font-medium flex items-center gap-2 justify-center">
+                  <AlertTriangle size={16} />
+                  {deleteError}
+                </p>
+              )}
               
               <div className="flex flex-col gap-3">
                 <button
                   onClick={async () => {
                     setIsDeleting(true);
+                    setDeleteError(null);
                     try {
-                      await onDeleteAccount();
-                    } catch (err) {
+                      await onDeleteAccount(reauthPassword);
+                    } catch (err: any) {
                       console.error('Error deleting account:', err);
                       setIsDeleting(false);
-                      setShowDeleteConfirm(false);
+                      if (err.message === 'PASSWORD_REQUIRED') {
+                        setDeleteError('Por favor, insira sua senha para confirmar.');
+                      } else if (err.message === 'AUTH_FAILED') {
+                        setDeleteError('Falha na autenticação. Verifique sua senha.');
+                      } else {
+                        setDeleteError('Ocorreu um erro ao excluir sua conta.');
+                      }
                     }
                   }}
-                  disabled={isDeleting}
+                  disabled={isDeleting || (isEmailUser && !reauthPassword)}
                   className="w-full bg-red-600 text-white py-4 rounded-xl font-bold hover:bg-red-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-red-100"
                 >
                   {isDeleting ? 'Eliminando...' : (

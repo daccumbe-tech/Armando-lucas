@@ -120,6 +120,7 @@ service cloud.firestore {
       allow create: if isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role != 'admin' || isAdmin());
       allow update: if (isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role == resource.data.role || isAdmin())) ||
                     (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['followers']));
+      allow delete: if isOwner(userId) || isAdmin();
     }
 
     match /projects/{projectId} {
@@ -151,6 +152,7 @@ service cloud.firestore {
       allow read: if isAuthenticated() && request.auth.uid in resource.data.participants;
       allow create: if isAuthenticated() && request.auth.uid in request.resource.data.participants;
       allow update: if isAuthenticated() && request.auth.uid in resource.data.participants;
+      allow delete: if isAuthenticated() && request.auth.uid in resource.data.participants;
       
       match /messages/{messageId} {
         allow read: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
@@ -163,6 +165,12 @@ service cloud.firestore {
       allow create: if isAuthenticated();
       allow update: if isAuthenticated() && resource.data.recipientId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
       allow delete: if isAuthenticated() && resource.data.recipientId == request.auth.uid;
+    }
+
+    // Collection Group rule for comments to allow deletion by the user who created them
+    match /{path=**}/comments/{commentId} {
+      allow read: if true;
+      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
     }
   }
 }
