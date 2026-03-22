@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
-import { db, auth, googleProvider, facebookProvider } from '../firebase';
+import { db, auth, googleProvider, facebookProvider, sanitizeData } from '../firebase';
 import { doc, setDoc } from 'firebase/firestore';
 import { UserProfile, UserRole, CATEGORIES } from '../types';
 import { User, Briefcase, CheckCircle, Trash2, AlertTriangle, Link as LinkIcon, Globe, Facebook } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { linkWithPopup, fetchSignInMethodsForEmail } from 'firebase/auth';
+import { motion } from 'motion/react';
+import { linkWithPopup } from 'firebase/auth';
+
+import DeleteAccountModal from './DeleteAccountModal';
 
 interface ProfileSetupProps {
   user: UserProfile;
@@ -16,22 +18,20 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount }: Prof
   const [role, setRole] = useState<UserRole>(user.role || 'talent');
   const [category, setCategory] = useState(user.category || CATEGORIES[0]);
   const [bio, setBio] = useState(user.bio || '');
+  const [email, setEmail] = useState(user.email || '');
+  const [emailError, setEmailError] = useState<string | null>(null);
   const [skills, setSkills] = useState(user.skills?.join(', ') || '');
   const [whatsapp, setWhatsapp] = useState(user.whatsapp || '');
   const [city, setCity] = useState(user.city || '');
   const [country, setCountry] = useState(user.country || '');
+  const [phone, setPhone] = useState(user.phone || '');
   const [isVerified, setIsVerified] = useState(user.isVerified || false);
   const [company, setCompany] = useState(user.company || '');
   const [selectedInterests, setSelectedInterests] = useState<string[]>(user.interests || []);
   const [loading, setLoading] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
   const [linkedProviders, setLinkedProviders] = useState<string[]>([]);
   const [linkError, setLinkError] = useState<string | null>(null);
-  const [reauthPassword, setReauthPassword] = useState('');
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-
-  const isEmailUser = auth.currentUser?.providerData[0]?.providerId === 'password';
 
   useEffect(() => {
     if (auth.currentUser) {
@@ -66,6 +66,23 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount }: Prof
     );
   };
 
+  const validateEmail = (value: string) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!value) {
+      setEmailError('O e-mail é obrigatório.');
+    } else if (!emailRegex.test(value)) {
+      setEmailError('Por favor, insira um e-mail válido.');
+    } else {
+      setEmailError(null);
+    }
+  };
+
+  const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setEmail(value);
+    validateEmail(value);
+  };
+
   const handleComplete = async () => {
     setLoading(true);
     try {
@@ -73,14 +90,16 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount }: Prof
       const updatedUser: UserProfile = {
         ...user,
         role,
-        category: role === 'talent' ? category : undefined,
-        skills: role === 'talent' ? skillsArray : undefined,
-        company: role === 'investor' ? company.trim() : undefined,
-        investmentFocus: role === 'investor' ? selectedInterests : undefined,
+        email: email.trim(),
+        category: role === 'talent' ? category : '',
+        skills: role === 'talent' ? skillsArray : [],
+        company: role === 'investor' ? company.trim() : '',
+        investmentFocus: role === 'investor' ? selectedInterests : [],
         interests: selectedInterests,
-        whatsapp: whatsapp.trim() || undefined,
-        city: city.trim() || undefined,
-        country: country.trim() || undefined,
+        whatsapp: whatsapp.trim() || '',
+        city: city.trim() || '',
+        country: country.trim() || '',
+        phone: phone.trim() || '',
         isVerified,
         location: `${city.trim()}, ${country.trim()}`,
         bio,
@@ -88,7 +107,7 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount }: Prof
         followers: user.followers || [],
         following: user.following || []
       };
-      await setDoc(doc(db, 'users', user.uid), updatedUser);
+      await setDoc(doc(db, 'users', user.uid), sanitizeData(updatedUser));
       onComplete(updatedUser);
     } catch (err) {
       console.error('Profile setup error:', err);
@@ -132,6 +151,25 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount }: Prof
           <h3 className="font-bold text-lg mb-1">Sou um Investidor</h3>
           <p className="text-sm text-gray-500">Quero descobrir novos talentos e investir em projetos.</p>
         </button>
+      </div>
+
+      <div className="mb-6">
+        <label className="block text-sm font-medium text-gray-700 mb-2">E-mail</label>
+        <input
+          type="email"
+          value={email}
+          onChange={handleEmailChange}
+          placeholder="seu@email.com"
+          className={`w-full p-3 rounded-xl border focus:ring-2 outline-none transition-all ${
+            emailError ? 'border-red-500 focus:ring-red-200' : 'border-gray-200 focus:ring-indigo-500'
+          }`}
+        />
+        {emailError && (
+          <p className="mt-1 text-xs text-red-500 font-medium flex items-center gap-1">
+            <AlertTriangle size={12} />
+            {emailError}
+          </p>
+        )}
       </div>
 
       {role === 'talent' && (
@@ -193,6 +231,17 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount }: Prof
             </button>
           ))}
         </div>
+      </div>
+
+      <div className="mb-6">
+        <label className="block text-sm font-medium text-gray-700 mb-2">Telefone (Opcional)</label>
+        <input
+          type="tel"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          placeholder="Ex: +258 84 123 4567"
+          className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+        />
       </div>
 
       <div className="mb-6">
@@ -318,7 +367,7 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount }: Prof
 
       <button
         onClick={handleComplete}
-        disabled={loading || !bio}
+        disabled={loading || !bio || !!emailError}
         className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 mb-8"
       >
         {loading ? 'Salvando...' : (
@@ -346,84 +395,11 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount }: Prof
         </button>
       </div>
 
-      <AnimatePresence>
-        {showDeleteConfirm && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl"
-            >
-              <div className="w-16 h-16 bg-red-100 rounded-2xl flex items-center justify-center text-red-600 mb-6 mx-auto">
-                <Trash2 size={32} />
-              </div>
-              <h3 className="text-2xl font-bold text-gray-900 text-center mb-2">Tem certeza?</h3>
-              <p className="text-gray-500 text-center mb-8">
-                Esta ação é <span className="font-bold text-red-600">irreversível</span>. Todos os seus dados serão apagados permanentemente dos nossos servidores.
-              </p>
-
-              {isEmailUser && (
-                <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-700 mb-2 text-left">Confirme sua senha</label>
-                  <input
-                    type="password"
-                    value={reauthPassword}
-                    onChange={(e) => setReauthPassword(e.target.value)}
-                    placeholder="Sua senha atual"
-                    className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-red-500 outline-none"
-                  />
-                </div>
-              )}
-              
-              {deleteError && (
-                <p className="mb-4 text-sm text-red-600 font-medium flex items-center gap-2 justify-center">
-                  <AlertTriangle size={16} />
-                  {deleteError}
-                </p>
-              )}
-              
-              <div className="flex flex-col gap-3">
-                <button
-                  onClick={async () => {
-                    setIsDeleting(true);
-                    setDeleteError(null);
-                    try {
-                      await onDeleteAccount(reauthPassword);
-                    } catch (err: any) {
-                      console.error('Error deleting account:', err);
-                      setIsDeleting(false);
-                      if (err.message === 'PASSWORD_REQUIRED') {
-                        setDeleteError('Por favor, insira sua senha para confirmar.');
-                      } else if (err.message === 'AUTH_FAILED') {
-                        setDeleteError('Falha na autenticação. Verifique sua senha.');
-                      } else {
-                        setDeleteError('Ocorreu um erro ao excluir sua conta.');
-                      }
-                    }
-                  }}
-                  disabled={isDeleting || (isEmailUser && !reauthPassword)}
-                  className="w-full bg-red-600 text-white py-4 rounded-xl font-bold hover:bg-red-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-red-100"
-                >
-                  {isDeleting ? 'Eliminando...' : (
-                    <>
-                      <Trash2 size={20} />
-                      Sim, Eliminar Tudo
-                    </>
-                  )}
-                </button>
-                <button
-                  onClick={() => setShowDeleteConfirm(false)}
-                  disabled={isDeleting}
-                  className="w-full bg-gray-100 text-gray-600 py-4 rounded-xl font-bold hover:bg-gray-200 transition-all"
-                >
-                  Cancelar
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      <DeleteAccountModal 
+        isOpen={showDeleteConfirm} 
+        onClose={() => setShowDeleteConfirm(false)} 
+        onConfirm={onDeleteAccount} 
+      />
     </div>
   );
 }

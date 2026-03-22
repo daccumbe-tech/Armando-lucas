@@ -8,21 +8,40 @@
         "uid": { "type": "string", "description": "Firebase Auth UID" },
         "name": { "type": "string", "description": "Full name" },
         "email": { "type": "string", "format": "email", "description": "User email" },
-        "role": { "type": "string", "enum": ["talent", "investor"], "description": "User role" },
+        "role": { "type": "string", "enum": ["talent", "investor", "admin"], "description": "User role" },
         "bio": { "type": "string", "description": "Short bio" },
         "category": { "type": "string", "description": "Main category for talents" },
         "skills": { "type": "array", "items": { "type": "string" } },
         "photoURL": { "type": "string", "format": "uri", "description": "Profile picture URL" },
         "whatsapp": { "type": "string", "description": "WhatsApp number" },
+        "phone": { "type": "string", "description": "Phone number for OTP" },
         "location": { "type": "string", "description": "User location (City/State)" },
         "isFeatured": { "type": "boolean", "description": "Whether the talent is featured" },
+        "isVerified": { "type": "boolean", "description": "General verification status" },
+        "isEmailVerified": { "type": "boolean", "description": "Email verification status" },
+        "isPhoneVerified": { "type": "boolean", "description": "Phone verification status" },
+        "isInvestorVerified": { "type": "boolean", "description": "Investor KYC status" },
+        "kyc": {
+          "type": "object",
+          "properties": {
+            "fullName": { "type": "string" },
+            "country": { "type": "string" },
+            "documentURL": { "type": "string" },
+            "selfieURL": { "type": "string" },
+            "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+            "rejectionReason": { "type": "string" },
+            "submittedAt": { "type": "string", "format": "date-time" }
+          }
+        },
         "createdAt": { "type": "string", "format": "date-time", "description": "Account creation date" },
         "followers": { "type": "array", "items": { "type": "string" }, "description": "UIDs of followers" },
         "following": { "type": "array", "items": { "type": "string" }, "description": "UIDs of followed users" },
         "company": { "type": "string", "description": "Company/Organization for investors" },
         "investmentFocus": { "type": "array", "items": { "type": "string" }, "description": "Categories the investor is interested in" },
         "interests": { "type": "array", "items": { "type": "string" }, "description": "General interests/categories" },
-        "viewedProjects": { "type": "array", "items": { "type": "string" }, "description": "IDs of recently viewed projects" }
+        "viewedProjects": { "type": "array", "items": { "type": "string" }, "description": "IDs of recently viewed projects" },
+        "isBanned": { "type": "boolean", "description": "Whether the user is banned" },
+        "banReason": { "type": "string", "description": "Reason for the ban" }
       },
       "required": ["uid", "name", "email", "role"]
     },
@@ -66,7 +85,9 @@
         "id": { "type": "string" },
         "participants": { "type": "array", "items": { "type": "string" } },
         "participantNames": { "type": "object" },
+        "participantPhotos": { "type": "object" },
         "lastMessage": { "type": "string" },
+        "acceptedBy": { "type": "array", "items": { "type": "string" }, "description": "UIDs of participants who accepted the chat" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "participants"]
@@ -117,6 +138,23 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "recipientId", "senderId", "senderName", "projectTitle", "projectId", "read"]
+    },
+    "Report": {
+      "title": "User Report",
+      "description": "A report against a user for misconduct.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "reporterId": { "type": "string" },
+        "reporterName": { "type": "string" },
+        "targetId": { "type": "string" },
+        "targetName": { "type": "string" },
+        "type": { "type": "string", "enum": ["fraude", "pedido_dinheiro", "comportamento_suspeito", "outro"] },
+        "description": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "resolved", "dismissed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "reporterId", "targetId", "type", "description"]
     }
   },
   "firestore": {
@@ -143,6 +181,10 @@
     "/notifications/{notificationId}": {
       "schema": "Notification",
       "description": "User notifications"
+    },
+    "/reports/{reportId}": {
+      "schema": "Report",
+      "description": "User misconduct reports"
     }
   }
 }

@@ -20,7 +20,20 @@ export interface UserProfile {
     ratedBy: string[];
   };
   isFeatured?: boolean;
-  isVerified?: boolean;
+  isVerified?: boolean; // General verification status
+  isEmailVerified?: boolean;
+  isPhoneVerified?: boolean;
+  phone?: string;
+  isInvestorVerified?: boolean;
+  kyc?: {
+    fullName: string;
+    country: string;
+    documentURL: string;
+    selfieURL: string;
+    status: 'pending' | 'approved' | 'rejected';
+    rejectionReason?: string;
+    submittedAt: any;
+  };
   viewsCount?: number;
   contactsCount?: number;
   createdAt?: string;
@@ -31,6 +44,22 @@ export interface UserProfile {
   investmentFocus?: string[];
   interests?: string[];
   viewedProjects?: string[];
+  isBanned?: boolean;
+  banReason?: string;
+}
+
+export type ReportType = 'fraude' | 'pedido_dinheiro' | 'comportamento_suspeito' | 'outro';
+
+export interface UserReport {
+  id: string;
+  reporterId: string;
+  reporterName: string;
+  targetId: string;
+  targetName: string;
+  type: ReportType;
+  description: string;
+  status: 'pending' | 'resolved' | 'dismissed';
+  createdAt: any;
 }
 
 export interface Project {
@@ -48,6 +77,7 @@ export interface Project {
   commentsCount?: number;
   likedBy?: string[];
   status?: 'published' | 'draft';
+  requiredSkills?: string[];
   rating?: {
     average: number;
     count: number;
@@ -73,8 +103,10 @@ export interface Conversation {
   id: string;
   participants: string[];
   participantNames: { [uid: string]: string };
+  participantPhotos: { [uid: string]: string };
   lastMessage?: string;
   unreadCounts?: { [uid: string]: number };
+  acceptedBy: string[]; // UIDs of participants who accepted the chat
   updatedAt: any;
 }
 

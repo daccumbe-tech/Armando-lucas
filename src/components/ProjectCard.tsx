@@ -161,6 +161,19 @@ export default function ProjectCard({
           {project.description}
         </p>
 
+        {project.requiredSkills && project.requiredSkills.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-4">
+            {project.requiredSkills.map((skill, index) => (
+              <span 
+                key={index} 
+                className="px-2 py-0.5 bg-indigo-50 text-indigo-600 text-[10px] font-bold rounded-md border border-indigo-100"
+              >
+                {skill}
+              </span>
+            ))}
+          </div>
+        )}
+
         <div className="mt-auto pt-4 border-t border-gray-50 flex flex-col gap-3 sm:gap-4">
           <div className="flex items-center justify-between">
             <StarRating 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { auth, db } from './firebase';
+import { auth, db, sanitizeData } from './firebase';
 import { 
   onAuthStateChanged, 
   deleteUser, 
@@ -7,7 +7,8 @@ import {
   reauthenticateWithCredential,
   GoogleAuthProvider, 
   FacebookAuthProvider, 
-  EmailAuthProvider 
+  EmailAuthProvider,
+  signOut
 } from 'firebase/auth';
 import { 
   collection, 
@@ -34,9 +35,19 @@ import Auth from './components/Auth';
 import ProfileSetup from './components/ProfileSetup';
 import ProjectCard from './components/ProjectCard';
 import Chat from './components/Chat';
+import ConversationsList from './components/ConversationsList';
+import Verification from './components/Verification';
+import KYCSubmission from './components/KYCSubmission';
+import AdminKYC from './components/AdminKYC';
+import AdminReports from './components/AdminReports';
+import ReportModal from './components/ReportModal';
+import TermsOfUse from './components/TermsOfUse';
+import PrivacyPolicy from './components/PrivacyPolicy';
 import { UserProfile, Project, CATEGORIES, ProjectComment, AppNotification } from './types';
 import Navbar from './components/Navbar';
+import DeleteAccountModal from './components/DeleteAccountModal';
 import Analytics from './components/Analytics';
+import About from './components/About';
 import StarRating from './components/StarRating';
 import { 
   Plus, 
@@ -63,12 +74,17 @@ import {
   Award,
   CheckCircle2,
   Eye,
-  Phone
+  Phone,
+  ShieldCheck,
+  Ban,
+  Shield,
+  AlertTriangle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function App() {
   const [user, setUser] = useState<UserProfile | null>(null);
+  const [showGlobalDeleteConfirm, setShowGlobalDeleteConfirm] = useState(false);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState('home');
   const [projects, setProjects] = useState<Project[]>([]);
@@ -79,6 +95,10 @@ export default function App() {
   const [locationSearchQuery, setLocationSearchQuery] = useState('');
   const [viewingProfile, setViewingProfile] = useState<UserProfile | null>(null);
   const [showChat, setShowChat] = useState(false);
+  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportTarget, setReportTarget] = useState<{ uid: string; name: string } | null>(null);
+  const [showSecurityAlert, setShowSecurityAlert] = useState(true);
   const [chatRecipient, setChatRecipient] = useState<UserProfile | undefined>(undefined);
   const [featuredTalents, setFeaturedTalents] = useState<UserProfile[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -96,6 +116,12 @@ export default function App() {
   const [viewedProjects, setViewedProjects] = useState<Project[]>([]);
   const [allProjects, setAllProjects] = useState<Project[]>([]);
   const [showDeleteSuccess, setShowDeleteSuccess] = useState(false);
+  const [filterStatus, setFilterStatus] = useState<'all' | 'published' | 'draft'>('all');
+  const [filterDeadlineStart, setFilterDeadlineStart] = useState('');
+  const [filterDeadlineEnd, setFilterDeadlineEnd] = useState('');
+  const [filterSkills, setFilterSkills] = useState('');
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [useInvestmentFocusFilter, setUseInvestmentFocusFilter] = useState(true);
 
   // New project form state
   const [newProject, setNewProject] = useState({
@@ -104,7 +130,9 @@ export default function App() {
     category: CATEGORIES[0],
     imageUrl: '',
     projectLink: '',
-    deadline: ''
+    deadline: '',
+    requiredSkills: '',
+    status: 'published' as 'published' | 'draft'
   });
 
   useEffect(() => {
@@ -121,9 +149,14 @@ export default function App() {
     async function testConnection() {
       try {
         await getDocFromServer(doc(db, 'test', 'connection'));
+        console.log("Conexão com Firestore estabelecida com sucesso.");
       } catch (error) {
-        if(error instanceof Error && error.message.includes('the client is offline')) {
-          console.error("Please check your Firebase configuration.");
+        if(error instanceof Error) {
+          if (error.message.includes('the client is offline')) {
+            console.error("Erro de conexão com Firestore: O cliente está offline ou o backend não respondeu.");
+          } else {
+            console.error("Erro ao testar conexão com Firestore:", error.message);
+          }
         }
       }
     }
@@ -409,22 +442,33 @@ export default function App() {
 
     setIsSubmitting(true);
     try {
-      await addDoc(collection(db, 'projects'), {
+      const projectData = {
         ...newProject,
+        requiredSkills: newProject.requiredSkills.split(',').map(s => s.trim()).filter(s => s !== ''),
         deadline: newProject.deadline ? Timestamp.fromDate(new Date(newProject.deadline)) : null,
         talentId: user.uid,
         talentName: user.name,
         talentEmail: user.email,
         talentLocation: user.location || '',
-        status: 'published',
         createdAt: serverTimestamp(),
         likesCount: 0,
         commentsCount: 0,
         likedBy: [],
         rating: { average: 0, count: 0, total: 0, ratedBy: [] }
-      });
+      };
+
+      await addDoc(collection(db, 'projects'), sanitizeData(projectData));
       setShowAddModal(false);
-      setNewProject({ title: '', description: '', category: CATEGORIES[0], imageUrl: '', projectLink: '', deadline: '' });
+      setNewProject({ 
+        title: '', 
+        description: '', 
+        category: CATEGORIES[0], 
+        imageUrl: '', 
+        projectLink: '', 
+        deadline: '',
+        requiredSkills: '',
+        status: 'published'
+      });
     } catch (err) {
       console.error('Error adding project:', err);
       alert('Erro ao publicar projeto. Tente novamente.');
@@ -715,26 +759,84 @@ export default function App() {
   };
 
   const openChatWith = async (recipient: UserProfile) => {
-    setChatRecipient(recipient);
-    setShowChat(true);
+    if (!user) {
+      setCurrentPage('auth');
+      return;
+    }
 
-    // Increment contacts count
-    if (user?.uid !== recipient.uid) {
-      try {
+    // Check verification
+    if (!auth.currentUser?.emailVerified || !user.isPhoneVerified) {
+      alert('Por favor, verifique seu e-mail e telefone para iniciar conversas.');
+      setCurrentPage('verification');
+      return;
+    }
+
+    setChatRecipient(recipient);
+    
+    try {
+      // Find existing conversation
+      const q = query(
+        collection(db, 'conversations'),
+        where('participants', 'array-contains', user.uid)
+      );
+      const querySnapshot = await getDocs(q);
+      let existingConv = querySnapshot.docs.find(doc => {
+        const data = doc.data();
+        return data.participants.includes(recipient.uid);
+      });
+
+      if (existingConv) {
+        setCurrentConversationId(existingConv.id);
+      } else {
+        // Create new conversation
+        const newConvRef = await addDoc(collection(db, 'conversations'), {
+          participants: [user.uid, recipient.uid],
+          participantNames: {
+            [user.uid]: user.name,
+            [recipient.uid]: recipient.name
+          },
+          participantPhotos: {
+            [user.uid]: user.photoURL || '',
+            [recipient.uid]: recipient.photoURL || ''
+          },
+          lastMessage: '',
+          acceptedBy: [],
+          updatedAt: serverTimestamp()
+        });
+        setCurrentConversationId(newConvRef.id);
+      }
+      
+      setShowChat(true);
+
+      // Increment contacts count
+      if (user.uid !== recipient.uid) {
         await updateDoc(doc(db, 'users', recipient.uid), {
           contactsCount: (recipient.contactsCount || 0) + 1
         });
-      } catch (err) {
-        console.error('Error updating contacts count:', err);
       }
+    } catch (err) {
+      console.error('Error opening chat:', err);
+      alert('Erro ao abrir chat.');
     }
   };
 
   const handleContactWhatsApp = async (recipient: UserProfile) => {
+    if (!user) {
+      setCurrentPage('auth');
+      return;
+    }
+
+    // Check verification
+    if (!auth.currentUser?.emailVerified || !user.isPhoneVerified) {
+      alert('Por favor, verifique seu e-mail e telefone para acessar contatos externos.');
+      setCurrentPage('verification');
+      return;
+    }
+
     if (!recipient.whatsapp) return;
 
     // Increment contacts count
-    if (user?.uid !== recipient.uid) {
+    if (user.uid !== recipient.uid) {
       try {
         await updateDoc(doc(db, 'users', recipient.uid), {
           contactsCount: (recipient.contactsCount || 0) + 1
@@ -787,11 +889,16 @@ export default function App() {
       }
 
       // 3. Delete user's comments on other projects
-      const userCommentsQuery = query(collectionGroup(db, 'comments'), where('userId', '==', uid));
-      const userCommentsSnapshot = await getDocs(userCommentsQuery);
-      userCommentsSnapshot.forEach((doc) => {
-        batch.delete(doc.ref);
-      });
+      try {
+        const userCommentsQuery = query(collectionGroup(db, 'comments'), where('userId', '==', uid));
+        const userCommentsSnapshot = await getDocs(userCommentsQuery);
+        userCommentsSnapshot.forEach((doc) => {
+          batch.delete(doc.ref);
+        });
+      } catch (err: any) {
+        console.warn('Could not delete comments on other projects (possibly missing index):', err);
+        // Continue anyway, as this is not critical for account deletion
+      }
 
       // 4. Delete user's notifications (received and sent)
       const receivedNotificationsQuery = query(collection(db, 'notifications'), where('recipientId', '==', uid));
@@ -840,11 +947,16 @@ export default function App() {
     } catch (error: any) {
       console.error('Error deleting account:', error);
       if (error.message === 'PASSWORD_REQUIRED') {
-        throw error; // Re-throw to be handled by the component
-      } else if (error.code === 'auth/requires-recent-login' || error.code === 'auth/wrong-password') {
+        throw error;
+      } else if (error.code === 'auth/requires-recent-login' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
         throw new Error('AUTH_FAILED');
+      } else if (error.code === 'auth/popup-closed-by-user') {
+        throw new Error('AUTH_CANCELLED');
+      } else if (error.code === 'auth/network-request-failed') {
+        throw new Error('NETWORK_ERROR');
       } else {
-        throw new Error('DELETE_FAILED');
+        // Pass the original error message if it's not a known code
+        throw new Error(error.message || 'DELETE_FAILED');
       }
     }
   };
@@ -856,8 +968,26 @@ export default function App() {
     const matchesCategory = selectedCategory === 'Todos' || p.category === selectedCategory;
     const matchesLocation = !locationSearchQuery || (p.talentLocation?.toLowerCase().includes(locationSearchQuery.toLowerCase()));
     const matchesRating = (p.rating?.average || 0) >= minRating;
+    
+    // Advanced Filters
+    const matchesStatus = filterStatus === 'all' || p.status === filterStatus;
+    
+    const projectDeadline = p.deadline?.toDate ? p.deadline.toDate() : (p.deadline ? new Date(p.deadline) : null);
+    const matchesDeadlineStart = !filterDeadlineStart || (projectDeadline && projectDeadline >= new Date(filterDeadlineStart));
+    const matchesDeadlineEnd = !filterDeadlineEnd || (projectDeadline && projectDeadline <= new Date(filterDeadlineEnd));
+    
+    const matchesSkills = !filterSkills || (p.requiredSkills?.some(skill => 
+      skill.toLowerCase().includes(filterSkills.toLowerCase())
+    ) || false);
+
+    const matchesInvestmentFocus = (user?.role === 'investor' && useInvestmentFocusFilter && user.investmentFocus && user.investmentFocus.length > 0)
+      ? user.investmentFocus.includes(p.category)
+      : true;
+
     const isVisible = p.status === 'published' || p.talentId === user?.uid;
-    return matchesSearch && matchesCategory && matchesLocation && matchesRating && isVisible;
+    
+    return matchesSearch && matchesCategory && matchesLocation && matchesRating && isVisible && 
+           matchesStatus && matchesDeadlineStart && matchesDeadlineEnd && matchesSkills && matchesInvestmentFocus;
   });
 
   const isProfileIncomplete = (profile: UserProfile) => {
@@ -886,16 +1016,72 @@ export default function App() {
     );
   }
 
+  if (user?.isBanned) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
+        <div className="bg-white p-12 rounded-3xl shadow-2xl max-w-md w-full text-center border border-red-100">
+          <div className="w-20 h-20 bg-red-100 rounded-2xl flex items-center justify-center text-red-600 mb-6 mx-auto">
+            <Ban size={40} />
+          </div>
+          <h2 className="text-3xl font-bold text-gray-900 mb-4">Conta Suspensa</h2>
+          <p className="text-gray-600 mb-8 leading-relaxed">
+            Sua conta foi suspensa por violar nossos termos de uso.
+            {user.banReason && (
+              <span className="block mt-4 p-4 bg-red-50 rounded-xl text-red-700 text-sm font-medium">
+                Motivo: {user.banReason}
+              </span>
+            )}
+          </p>
+          <button
+            onClick={() => signOut(auth)}
+            className="w-full bg-gray-900 text-white py-4 rounded-xl font-bold hover:bg-black transition-all"
+          >
+            Sair da Conta
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 font-sans text-gray-900">
       <Navbar 
         user={user} 
         onNavigate={setCurrentPage} 
-        onOpenChat={() => setShowChat(true)}
+        onOpenChat={() => setCurrentPage('conversations')}
         onOpenNotifications={() => setShowNotifications(!showNotifications)}
+        onDeleteAccount={() => setShowGlobalDeleteConfirm(true)}
         currentPage={currentPage} 
         unreadCount={unreadMessagesCount}
         notificationCount={notifications.filter(n => !n.read).length}
+      />
+
+      {showSecurityAlert && (
+        <div className="bg-amber-50 border-b border-amber-100 py-2 px-4 relative">
+          <div className="max-w-7xl mx-auto flex items-center justify-center gap-4 text-xs sm:text-sm font-medium text-amber-800">
+            <span className="flex items-center gap-1">
+              <AlertTriangle size={14} />
+              ⚠️ Nunca envie dinheiro para desconhecidos
+            </span>
+            <span className="hidden sm:inline text-amber-300">|</span>
+            <span className="flex items-center gap-1">
+              <Shield size={14} />
+              ⚠️ Use apenas o chat da plataforma para sua segurança
+            </span>
+            <button 
+              onClick={() => setShowSecurityAlert(false)}
+              className="absolute right-4 top-1/2 -translate-y-1/2 p-1 hover:bg-amber-100 rounded-full transition-colors"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      <DeleteAccountModal 
+        isOpen={showGlobalDeleteConfirm} 
+        onClose={() => setShowGlobalDeleteConfirm(false)} 
+        onConfirm={handleDeleteAccount} 
       />
 
       {/* Notifications Dropdown */}
@@ -1077,9 +1263,15 @@ export default function App() {
                   <div className="flex flex-col sm:flex-row items-center md:items-start gap-2 sm:gap-4 mb-4">
                     <div className="flex items-center gap-2">
                       <h2 className="text-2xl sm:text-4xl font-extrabold text-gray-900">{viewingProfile.name}</h2>
-                      {viewingProfile.isVerified && (
+                      {(viewingProfile.isVerified || (viewingProfile.isEmailVerified && viewingProfile.isPhoneVerified)) && (
                         <div title="Perfil Verificado">
                           <CheckCircle2 size={24} className="text-blue-500 fill-blue-50" />
+                        </div>
+                      )}
+                      {viewingProfile.isInvestorVerified && (
+                        <div title="Investidor Verificado" className="flex items-center gap-1 bg-green-100 text-green-700 px-2 py-1 rounded-lg text-[10px] font-bold">
+                          <Check size={14} />
+                          <span>INVESTIDOR VERIFICADO</span>
                         </div>
                       )}
                       {viewingProfile.role === 'talent' && (viewingProfile.rating?.average || 0) >= 4.5 && (viewingProfile.rating?.count || 0) >= 5 && (
@@ -1195,27 +1387,59 @@ export default function App() {
                   )}
 
                   <div className="flex flex-col sm:flex-row flex-wrap justify-center md:justify-start gap-4">
-                    {user && user.uid !== viewingProfile.uid && (
+                    {user?.uid === viewingProfile.uid && (!auth.currentUser?.emailVerified || !viewingProfile.isPhoneVerified) && (
                       <button 
-                        onClick={() => handleFollowUser(viewingProfile.uid)}
-                        className={`inline-flex items-center justify-center gap-3 px-8 py-4 rounded-2xl font-bold transition-all shadow-lg w-full sm:w-auto ${
-                          user.following?.includes(viewingProfile.uid)
-                            ? 'bg-gray-100 text-gray-600 hover:bg-gray-200 shadow-gray-100'
-                            : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-100'
-                        }`}
+                        onClick={() => setCurrentPage('verification')}
+                        className="inline-flex items-center justify-center gap-3 bg-amber-600 text-white px-8 py-4 rounded-2xl font-bold hover:bg-amber-700 transition-all shadow-lg shadow-amber-100 w-full sm:w-auto"
                       >
-                        {user.following?.includes(viewingProfile.uid) ? (
-                          <>
-                            <UserMinus size={20} />
-                            Deixar de Seguir
-                          </>
-                        ) : (
-                          <>
-                            <UserPlus size={20} />
-                            Seguir
-                          </>
-                        )}
+                        <AlertCircle size={20} />
+                        Verificar Conta
                       </button>
+                    )}
+
+                    {user?.uid === viewingProfile.uid && viewingProfile.role === 'investor' && viewingProfile.kyc?.status !== 'approved' && (
+                      <button 
+                        onClick={() => setCurrentPage('kyc')}
+                        className="inline-flex items-center justify-center gap-3 bg-indigo-600 text-white px-8 py-4 rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 w-full sm:w-auto"
+                      >
+                        <ShieldCheck size={20} />
+                        Verificação KYC
+                      </button>
+                    )}
+
+                    {user && user.uid !== viewingProfile.uid && (
+                      <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                        <button 
+                          onClick={() => handleFollowUser(viewingProfile.uid)}
+                          className={`inline-flex items-center justify-center gap-3 px-8 py-4 rounded-2xl font-bold transition-all shadow-lg w-full sm:w-auto ${
+                            user.following?.includes(viewingProfile.uid)
+                              ? 'bg-gray-100 text-gray-600 hover:bg-gray-200 shadow-gray-100'
+                              : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-100'
+                          }`}
+                        >
+                          {user.following?.includes(viewingProfile.uid) ? (
+                            <>
+                              <UserMinus size={20} />
+                              Deixar de Seguir
+                            </>
+                          ) : (
+                            <>
+                              <UserPlus size={20} />
+                              Seguir
+                            </>
+                          )}
+                        </button>
+                        <button 
+                          onClick={() => {
+                            setReportTarget({ uid: viewingProfile.uid, name: viewingProfile.name });
+                            setShowReportModal(true);
+                          }}
+                          className="inline-flex items-center justify-center gap-3 bg-white border-2 border-red-100 text-red-600 px-8 py-4 rounded-2xl font-bold hover:bg-red-50 transition-all shadow-lg shadow-red-50 w-full sm:w-auto"
+                        >
+                          <AlertTriangle size={20} />
+                          Denunciar
+                        </button>
+                      </div>
                     )}
 
                     {user?.role === 'investor' && viewingProfile.role === 'talent' && (
@@ -1290,6 +1514,57 @@ export default function App() {
 
         {currentPage === 'analytics' && (
           <Analytics projects={allProjects} />
+        )}
+        
+        {currentPage === 'about' && (
+          <About />
+        )}
+
+        {currentPage === 'verification' && user && (
+          <Verification user={user} onUpdate={(u) => setUser(u)} />
+        )}
+
+        {currentPage === 'kyc' && user && user.role === 'investor' && (
+          <KYCSubmission user={user} onUpdate={(u) => setUser(u)} />
+        )}
+
+        {currentPage === 'admin-kyc' && user && user.role === 'admin' && (
+          <AdminKYC />
+        )}
+
+        {currentPage === 'admin-reports' && user && user.role === 'admin' && (
+          <AdminReports />
+        )}
+
+        {currentPage === 'terms' && (
+          <TermsOfUse />
+        )}
+
+        {currentPage === 'privacy' && (
+          <PrivacyPolicy />
+        )}
+
+        {currentPage === 'chat' && user && currentConversationId && (
+          <div className="max-w-4xl mx-auto">
+            <Chat 
+              conversationId={currentConversationId} 
+              currentUser={user} 
+              onReport={(target) => {
+                setReportTarget(target);
+                setShowReportModal(true);
+              }}
+            />
+          </div>
+        )}
+
+        {currentPage === 'conversations' && user && (
+          <ConversationsList 
+            currentUser={user} 
+            onSelectConversation={(id) => {
+              setCurrentConversationId(id);
+              setCurrentPage('chat');
+            }} 
+          />
         )}
 
         {currentPage === 'home' && (
@@ -1380,7 +1655,88 @@ export default function App() {
                     className="w-full pl-12 pr-4 py-3 rounded-xl border border-gray-100 focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-sm sm:text-base"
                   />
                 </div>
+                <button 
+                  onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+                  className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-sm transition-all border ${
+                    showAdvancedFilters 
+                      ? 'bg-indigo-600 text-white border-indigo-600' 
+                      : 'bg-white text-gray-600 border-gray-100 hover:border-indigo-200'
+                  }`}
+                >
+                  <ChevronDown size={18} className={`transition-transform ${showAdvancedFilters ? 'rotate-180' : ''}`} />
+                  Filtros Avançados
+                </button>
               </div>
+
+              <AnimatePresence>
+                {showAdvancedFilters && (
+                  <motion.div 
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-6 border-t border-gray-50">
+                      <div>
+                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Status do Projeto</label>
+                        <select 
+                          value={filterStatus}
+                          onChange={(e) => setFilterStatus(e.target.value as any)}
+                          className="w-full p-3 rounded-xl border border-gray-100 focus:ring-2 focus:ring-indigo-500 outline-none text-sm bg-gray-50"
+                        >
+                          <option value="all">Todos os Status</option>
+                          <option value="published">Publicados</option>
+                          <option value="draft">Rascunhos</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Habilidades Necessárias</label>
+                        <input 
+                          type="text" 
+                          placeholder="Ex: React, Design..."
+                          value={filterSkills}
+                          onChange={(e) => setFilterSkills(e.target.value)}
+                          className="w-full p-3 rounded-xl border border-gray-100 focus:ring-2 focus:ring-indigo-500 outline-none text-sm bg-gray-50"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Prazo (Início)</label>
+                          <input 
+                            type="date" 
+                            value={filterDeadlineStart}
+                            onChange={(e) => setFilterDeadlineStart(e.target.value)}
+                            className="w-full p-3 rounded-xl border border-gray-100 focus:ring-2 focus:ring-indigo-500 outline-none text-sm bg-gray-50"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Prazo (Fim)</label>
+                          <input 
+                            type="date" 
+                            value={filterDeadlineEnd}
+                            onChange={(e) => setFilterDeadlineEnd(e.target.value)}
+                            className="w-full p-3 rounded-xl border border-gray-100 focus:ring-2 focus:ring-indigo-500 outline-none text-sm bg-gray-50"
+                          />
+                        </div>
+                      </div>
+                      {user?.role === 'investor' && user.investmentFocus && user.investmentFocus.length > 0 && (
+                        <div className="md:col-span-3 flex items-center gap-3 p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
+                          <input 
+                            type="checkbox" 
+                            id="investmentFocusToggle"
+                            checked={useInvestmentFocusFilter}
+                            onChange={(e) => setUseInvestmentFocusFilter(e.target.checked)}
+                            className="w-5 h-5 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500"
+                          />
+                          <label htmlFor="investmentFocusToggle" className="text-sm font-medium text-indigo-900">
+                            Filtrar por meu Foco de Investimento ({user.investmentFocus.join(', ')})
+                          </label>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               <div className="flex flex-col sm:flex-row sm:items-center gap-4">
                 <div className="flex items-center gap-2 overflow-x-auto pb-2 sm:pb-0 scrollbar-hide flex-1 -mx-4 px-4 sm:mx-0 sm:px-0">
@@ -1814,6 +2170,45 @@ export default function App() {
                 </div>
 
                 <div className="space-y-2">
+                  <label className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-wider ml-1">Habilidades Necessárias (Separadas por vírgula)</label>
+                  <input 
+                    type="text" 
+                    value={newProject.requiredSkills}
+                    onChange={(e) => setNewProject({...newProject, requiredSkills: e.target.value})}
+                    placeholder="Ex: React, Tailwind, Firebase"
+                    className="w-full p-4 rounded-2xl bg-gray-50 border border-gray-100 focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-sm sm:text-base"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-wider ml-1">Status</label>
+                  <div className="flex gap-4">
+                    <button
+                      type="button"
+                      onClick={() => setNewProject({...newProject, status: 'published'})}
+                      className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all border ${
+                        newProject.status === 'published' 
+                          ? 'bg-indigo-600 text-white border-indigo-600' 
+                          : 'bg-white text-gray-600 border-gray-100 hover:border-indigo-200'
+                      }`}
+                    >
+                      Publicar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNewProject({...newProject, status: 'draft'})}
+                      className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all border ${
+                        newProject.status === 'draft' 
+                          ? 'bg-amber-500 text-white border-amber-500' 
+                          : 'bg-white text-gray-600 border-gray-100 hover:border-amber-200'
+                      }`}
+                    >
+                      Rascunho
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
                   <label className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-wider ml-1">Imagem de Capa</label>
                   <div className="space-y-4">
                     {!newProject.imageUrl ? (
@@ -1890,7 +2285,7 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      <footer className="bg-white border-t border-gray-100 py-12 mt-20">
+      <footer className="bg-white border-t border-gray-100 py-12 mt-20 relative">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <div className="flex items-center justify-center gap-2 mb-4">
             <div className="w-6 h-6 bg-indigo-600 rounded flex items-center justify-center">
@@ -1899,6 +2294,15 @@ export default function App() {
             <span className="text-lg font-bold text-gray-900">TalentLink</span>
           </div>
           <p className="text-gray-500 text-sm">© 2026 TalentLink. Conectando o futuro hoje.</p>
+          <div className="flex justify-center gap-6 mt-4">
+            <button onClick={() => setCurrentPage('home')} className="text-gray-400 hover:text-indigo-600 text-sm transition-colors">Explorar</button>
+            <button onClick={() => setCurrentPage('about')} className="text-gray-400 hover:text-indigo-600 text-sm transition-colors">Sobre</button>
+            <button onClick={() => setCurrentPage('terms')} className="text-gray-400 hover:text-indigo-600 text-sm transition-colors">Termos de Uso</button>
+            <button onClick={() => setCurrentPage('privacy')} className="text-gray-400 hover:text-indigo-600 text-sm transition-colors">Privacidade</button>
+          </div>
+        </div>
+        <div className="absolute bottom-4 right-6 md:right-12">
+          <span className="text-[10px] font-medium text-gray-300 tracking-widest uppercase opacity-60">D@C</span>
         </div>
       </footer>
       {/* Delete Success Modal */}
@@ -1922,15 +2326,15 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
-
-      {showChat && user && (
-        <Chat 
-          currentUser={user} 
-          recipient={chatRecipient} 
+      {reportTarget && (
+        <ReportModal
+          isOpen={showReportModal}
           onClose={() => {
-            setShowChat(false);
-            setChatRecipient(undefined);
-          }} 
+            setShowReportModal(false);
+            setReportTarget(null);
+          }}
+          targetUser={reportTarget}
+          currentUser={user!}
         />
       )}
     </div>

@@ -1,9 +1,10 @@
 import { auth, db } from '../firebase';
 import { GoogleAuthProvider, FacebookAuthProvider, signInWithPopup, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, fetchSignInMethodsForEmail, linkWithPopup } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { UserProfile } from '../types';
-import { Mail, Lock, User, LogIn, UserPlus, Facebook } from 'lucide-react';
+import { Mail, Lock, User, LogIn, UserPlus, Facebook, ShieldAlert, Ban } from 'lucide-react';
+import ReCAPTCHA from 'react-google-recaptcha';
 
 interface AuthProps {
   onSuccess: (user: UserProfile) => void;
@@ -13,16 +14,26 @@ export default function Auth({ onSuccess }: AuthProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSignUp, setIsSignUp] = useState(false);
+  const [loginAttempts, setLoginAttempts] = useState(0);
+  const [isLocked, setIsLocked] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const recaptchaRef = useRef<ReCAPTCHA>(null);
   
   // Form state
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
+  const [honeypot, setHoneypot] = useState(''); // Spam protection
 
   const handleAuthSuccess = async (firebaseUser: any) => {
     const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
     if (userDoc.exists()) {
-      onSuccess(userDoc.data() as UserProfile);
+      const userData = userDoc.data() as UserProfile;
+      if (userData.isBanned) {
+        setError(`Esta conta foi suspensa. Motivo: ${userData.banReason || 'Violação dos termos'}`);
+        return;
+      }
+      onSuccess(userData);
     } else {
       // Initial setup for new user
       const newUser: UserProfile = {
@@ -31,7 +42,8 @@ export default function Auth({ onSuccess }: AuthProps) {
         email: firebaseUser.email || email || '',
         role: 'talent', // Default role
         photoURL: firebaseUser.photoURL || '',
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        isBanned: false
       };
       onSuccess(newUser);
     }
@@ -72,6 +84,22 @@ export default function Auth({ onSuccess }: AuthProps) {
 
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (isLocked) {
+      setError('Muitas tentativas. Tente novamente mais tarde.');
+      return;
+    }
+
+    if (honeypot) {
+      console.warn('Spam detected');
+      return;
+    }
+
+    if (!captchaToken) {
+      setError('Por favor, complete o reCAPTCHA.');
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
@@ -83,19 +111,36 @@ export default function Auth({ onSuccess }: AuthProps) {
         await handleAuthSuccess(result.user);
       } else {
         const result = await signInWithEmailAndPassword(auth, email, password);
+        setLoginAttempts(0);
         await handleAuthSuccess(result.user);
       }
     } catch (err: any) {
       console.error('Email auth error:', err);
+      
+      if (!isSignUp) {
+        const newAttempts = loginAttempts + 1;
+        setLoginAttempts(newAttempts);
+        if (newAttempts >= 5) {
+          setIsLocked(true);
+          setTimeout(() => setIsLocked(false), 300000); // 5 min lock
+        }
+      }
+
       if (err.code === 'auth/email-already-in-use') {
         setError('Este e-mail já está em uso.');
       } else if (err.code === 'auth/invalid-credential') {
-        setError('E-mail ou senha incorretos.');
+        setError(`E-mail ou senha incorretos. Tentativas: ${loginAttempts + 1}/5`);
       } else if (err.code === 'auth/weak-password') {
         setError('A senha deve ter pelo menos 6 caracteres.');
+      } else if (err.code === 'auth/too-many-requests') {
+        setError('Muitas tentativas. Sua conta foi temporariamente bloqueada.');
       } else {
         setError('Ocorreu um erro. Tente novamente.');
       }
+      
+      // Reset captcha on error
+      recaptchaRef.current?.reset();
+      setCaptchaToken(null);
     } finally {
       setLoading(false);
     }
@@ -155,9 +200,30 @@ export default function Auth({ onSuccess }: AuthProps) {
             className="w-full pl-12 pr-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
           />
         </div>
+
+        {/* Honeypot field - hidden from users */}
+        <div className="hidden">
+          <input
+            type="text"
+            value={honeypot}
+            onChange={(e) => setHoneypot(e.target.value)}
+            tabIndex={-1}
+            autoComplete="off"
+          />
+        </div>
+
+        <div className="flex justify-center py-2">
+          <ReCAPTCHA
+            ref={recaptchaRef}
+            sitekey="6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI" // Test key - User should replace with real one
+            onChange={(token) => setCaptchaToken(token)}
+            size="normal"
+          />
+        </div>
+
         <button
           type="submit"
-          disabled={loading}
+          disabled={loading || isLocked || !captchaToken}
           className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
         >
           {loading ? 'Aguarde...' : (isSignUp ? <UserPlus size={20} /> : <LogIn size={20} />)}

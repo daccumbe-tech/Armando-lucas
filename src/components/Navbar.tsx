@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { auth } from '../firebase';
 import { signOut } from 'firebase/auth';
-import { LogOut, User, LayoutDashboard, Search, PlusCircle, MessageSquare, Bell, BarChart2, ChevronDown, Menu, X } from 'lucide-react';
+import { LogOut, User, LayoutDashboard, Search, PlusCircle, MessageSquare, Bell, BarChart2, ChevronDown, Menu, X, Trash2, Info, ShieldCheck, Ban, AlertTriangle } from 'lucide-react';
 import { UserProfile } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -10,6 +10,7 @@ interface NavbarProps {
   onNavigate: (page: string) => void;
   onOpenChat: () => void;
   onOpenNotifications: () => void;
+  onDeleteAccount: () => void;
   currentPage: string;
   unreadCount?: number;
   notificationCount?: number;
@@ -20,6 +21,7 @@ export default function Navbar({
   onNavigate, 
   onOpenChat, 
   onOpenNotifications, 
+  onDeleteAccount,
   currentPage, 
   unreadCount = 0,
   notificationCount = 0
@@ -63,6 +65,12 @@ export default function Navbar({
               className={`text-sm font-medium transition-colors ${currentPage === 'home' ? 'text-indigo-600' : 'text-gray-500 hover:text-gray-900'}`}
             >
               Explorar
+            </button>
+            <button 
+              onClick={() => navigateTo('about')}
+              className={`text-sm font-medium transition-colors ${currentPage === 'about' ? 'text-indigo-600' : 'text-gray-500 hover:text-gray-900'}`}
+            >
+              Sobre
             </button>
             {user?.role === 'talent' && (
               <button 
@@ -152,6 +160,25 @@ export default function Navbar({
                             Analytics
                           </button>
 
+                          {user.role === 'admin' && (
+                            <>
+                              <button 
+                                onClick={() => navigateTo('admin-kyc')}
+                                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-600 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
+                              >
+                                <ShieldCheck size={18} />
+                                Admin KYC
+                              </button>
+                              <button 
+                                onClick={() => navigateTo('admin-reports')}
+                                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                              >
+                                <Ban size={18} />
+                                Admin Reports
+                              </button>
+                            </>
+                          )}
+
                           {user.role === 'talent' && (
                             <button 
                               onClick={() => navigateTo('dashboard')}
@@ -164,8 +191,18 @@ export default function Navbar({
 
                           <div className="border-t border-gray-50 mt-1 pt-1">
                             <button 
-                              onClick={handleSignOut}
+                              onClick={() => {
+                                setShowUserMenu(false);
+                                onDeleteAccount();
+                              }}
                               className="w-full flex items-center gap-3 px-4 py-3 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                            >
+                              <Trash2 size={18} />
+                              Eliminar Conta
+                            </button>
+                            <button 
+                              onClick={handleSignOut}
+                              className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
                             >
                               <LogOut size={18} />
                               Sair
@@ -227,6 +264,13 @@ export default function Navbar({
                   <Search size={20} />
                   Explorar
                 </button>
+                <button 
+                  onClick={() => navigateTo('about')}
+                  className={`w-full flex items-center gap-3 px-4 py-4 rounded-2xl text-base font-bold transition-all ${currentPage === 'about' ? 'bg-indigo-50 text-indigo-600' : 'text-gray-600 hover:bg-gray-50'}`}
+                >
+                  <Info size={20} />
+                  Sobre
+                </button>
                 {user?.role === 'talent' && (
                   <button 
                     onClick={() => navigateTo('dashboard')}
@@ -243,22 +287,41 @@ export default function Navbar({
                   <BarChart2 size={20} />
                   Analytics
                 </button>
-                {user && (
-                  <button 
-                    onClick={() => navigateTo('profile')}
-                    className={`w-full flex items-center gap-3 px-4 py-4 rounded-2xl text-base font-bold transition-all ${currentPage === 'profile' ? 'bg-indigo-50 text-indigo-600' : 'text-gray-600 hover:bg-gray-50'}`}
-                  >
-                    <User size={20} />
-                    Meu Perfil
-                  </button>
+                {user.role === 'admin' && (
+                  <>
+                    <button 
+                      onClick={() => navigateTo('admin-kyc')}
+                      className={`w-full flex items-center gap-3 px-4 py-4 rounded-2xl text-base font-bold transition-all ${currentPage === 'admin-kyc' ? 'bg-indigo-50 text-indigo-600' : 'text-gray-600 hover:bg-gray-50'}`}
+                    >
+                      <ShieldCheck size={20} />
+                      Admin KYC
+                    </button>
+                    <button 
+                      onClick={() => navigateTo('admin-reports')}
+                      className={`w-full flex items-center gap-3 px-4 py-4 rounded-2xl text-base font-bold transition-all ${currentPage === 'admin-reports' ? 'bg-red-50 text-red-600' : 'text-gray-600 hover:bg-gray-50'}`}
+                    >
+                      <Ban size={20} />
+                      Admin Reports
+                    </button>
+                  </>
                 )}
               </div>
 
               {user ? (
-                <div className="p-4 border-t border-gray-100">
+                <div className="p-4 border-t border-gray-100 space-y-2">
+                  <button 
+                    onClick={() => {
+                      setShowMobileMenu(false);
+                      onDeleteAccount();
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-4 rounded-2xl text-base font-bold text-red-600 hover:bg-red-50 transition-all"
+                  >
+                    <Trash2 size={20} />
+                    Eliminar Conta
+                  </button>
                   <button 
                     onClick={handleSignOut}
-                    className="w-full flex items-center gap-3 px-4 py-4 rounded-2xl text-base font-bold text-red-600 hover:bg-red-50 transition-all"
+                    className="w-full flex items-center gap-3 px-4 py-4 rounded-2xl text-base font-bold text-gray-600 hover:bg-gray-50 transition-all"
                   >
                     <LogOut size={20} />
                     Sair da Conta
