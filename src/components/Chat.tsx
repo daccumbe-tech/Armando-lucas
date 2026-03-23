@@ -13,8 +13,8 @@ import {
   arrayUnion,
   getDoc
 } from 'firebase/firestore';
-import { Conversation, Message, UserProfile } from '../types';
-import { Send, Phone, Link as LinkIcon, Shield, CheckCircle, AlertCircle, Loader2, User, MessageSquare, Lock, Unlock, AlertTriangle } from 'lucide-react';
+import { Conversation, Message, UserProfile, SiteSettings } from '../types';
+import { Send, Phone, Link as LinkIcon, Shield, CheckCircle, AlertCircle, Loader2, User, MessageSquare, Lock, Unlock, AlertTriangle, Info } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface ChatProps {
@@ -23,6 +23,9 @@ interface ChatProps {
   onReport?: (target: { uid: string; name: string }) => void;
 }
 
+const SUSPICIOUS_KEYWORDS = ['dinheiro', 'envia', 'urgente', 'whatsapp', 'pagar'];
+const MESSAGE_LIMIT_SUSPICIOUS = 10;
+
 export default function Chat({ conversationId, currentUser, onReport }: ChatProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [conversation, setConversation] = useState<Conversation | null>(null);
@@ -30,7 +33,20 @@ export default function Chat({ conversationId, currentUser, onReport }: ChatProp
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [settings, setSettings] = useState<SiteSettings | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // Fetch site settings for security message
+    const fetchSettings = async () => {
+      const docRef = doc(db, 'site_settings', 'global');
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        setSettings(docSnap.data() as SiteSettings);
+      }
+    };
+    fetchSettings();
+  }, []);
 
   useEffect(() => {
     if (!conversationId) return;
@@ -88,9 +104,17 @@ export default function Chat({ conversationId, currentUser, onReport }: ChatProp
 
     setError(null);
     
-    // Check for links in initial contact
-    if (!isMutuallyAccepted && containsExternalLinks(newMessage)) {
-      setError('O envio de links externos é bloqueado até que ambos aceitem o contato.');
+    // Check for links in initial contact or if suspicious
+    if ((!isMutuallyAccepted || currentUser.isSuspicious) && containsExternalLinks(newMessage)) {
+      setError(currentUser.isSuspicious 
+        ? 'Sua conta está sob revisão. O envio de links está temporariamente bloqueado.' 
+        : 'O envio de links externos é bloqueado até que ambos aceitem o contato.');
+      return;
+    }
+
+    // Check message limit for suspicious users
+    if (currentUser.isSuspicious && (currentUser.dailyMessageCount || 0) >= MESSAGE_LIMIT_SUSPICIOUS) {
+      setError(`Limite diário de mensagens atingido (${MESSAGE_LIMIT_SUSPICIOUS}).`);
       return;
     }
 
@@ -98,6 +122,46 @@ export default function Chat({ conversationId, currentUser, onReport }: ChatProp
     try {
       const maskedText = maskPhoneNumbers(newMessage);
       
+      // Check for suspicious keywords
+      const lowerText = newMessage.toLowerCase();
+      const foundKeywords = SUSPICIOUS_KEYWORDS.filter(k => lowerText.includes(k));
+      
+      if (foundKeywords.length > 0) {
+        // Auto-suspend
+        const userRef = doc(db, 'users', currentUser.uid);
+        await updateDoc(userRef, {
+          status: 'suspended',
+          suspicionReason: `Palavras suspeitas detectadas: ${foundKeywords.join(', ')}`,
+          isSuspicious: true
+        });
+
+        // Log action
+        await addDoc(collection(db, 'admin_logs'), {
+          adminId: 'system',
+          adminName: 'Sistema Automático',
+          action: 'auto_suspend',
+          targetId: currentUser.uid,
+          targetName: currentUser.name,
+          details: `Suspensão automática por palavras suspeitas: ${foundKeywords.join(', ')}`,
+          createdAt: serverTimestamp()
+        });
+
+        // Notify user
+        await addDoc(collection(db, 'notifications'), {
+          recipientId: currentUser.uid,
+          senderId: 'system',
+          senderName: 'Sistema TalentLink',
+          type: 'suspension',
+          message: 'Sua conta foi suspensa automaticamente por atividade suspeita. Evite compartilhar dados pessoais e financeiros.',
+          read: false,
+          createdAt: serverTimestamp()
+        });
+
+        setError('Sua conta foi suspensa por atividade suspeita.');
+        setSending(false);
+        return;
+      }
+
       const messagesRef = collection(db, 'conversations', conversationId, 'messages');
       await addDoc(messagesRef, {
         senderId: currentUser.uid,
@@ -110,6 +174,14 @@ export default function Chat({ conversationId, currentUser, onReport }: ChatProp
       await updateDoc(convRef, {
         lastMessage: maskedText,
         updatedAt: serverTimestamp()
+      });
+
+      // Update user stats
+      const userRef = doc(db, 'users', currentUser.uid);
+      await updateDoc(userRef, {
+        messageCount: (currentUser.messageCount || 0) + 1,
+        dailyMessageCount: (currentUser.dailyMessageCount || 0) + 1,
+        lastMessageAt: serverTimestamp()
       });
 
       setNewMessage('');
@@ -152,6 +224,14 @@ export default function Chat({ conversationId, currentUser, onReport }: ChatProp
 
   return (
     <div className="flex flex-col h-[700px] bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
+      {/* Security Message */}
+      {settings?.defaultNotificationMessages?.security && (
+        <div className="bg-indigo-50 px-4 py-2 border-b border-indigo-100 flex items-center justify-center gap-2">
+          <Shield size={14} className="text-indigo-600" />
+          <p className="text-[10px] font-bold text-indigo-700 uppercase tracking-wider">{settings.defaultNotificationMessages.security}</p>
+        </div>
+      )}
+
       {/* Chat Header */}
       <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-white/80 backdrop-blur-md sticky top-0 z-10">
         <div className="flex items-center gap-3">

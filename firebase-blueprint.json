@@ -43,6 +43,12 @@
         "status": { "type": "string", "enum": ["active", "suspended", "banned"], "description": "Account status" },
         "isBanned": { "type": "boolean", "description": "Whether the user is banned" },
         "banReason": { "type": "string", "description": "Reason for the ban" },
+        "isSuspicious": { "type": "boolean", "description": "Whether the user is marked as suspicious" },
+        "suspicionReason": { "type": "string", "description": "Reason for suspicion" },
+        "reportCount": { "type": "integer", "description": "Number of reports received" },
+        "messageCount": { "type": "integer", "description": "Total messages sent" },
+        "lastMessageAt": { "type": "string", "format": "date-time" },
+        "dailyMessageCount": { "type": "integer" },
         "portfolio": {
           "type": "array",
           "items": {
@@ -173,6 +179,38 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "reporterId", "targetId", "type", "description"]
+    },
+    "AdminLog": {
+      "title": "Admin Log",
+      "description": "Log of administrative actions.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "adminId": { "type": "string" },
+        "adminName": { "type": "string" },
+        "action": { "type": "string" },
+        "targetId": { "type": "string" },
+        "targetName": { "type": "string" },
+        "details": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "adminId", "action", "details"]
+    },
+    "SiteSettings": {
+      "title": "Site Settings",
+      "description": "Global application settings.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "siteName": { "type": "string" },
+        "siteDescription": { "type": "string" },
+        "securityMessage": { "type": "string" },
+        "allowNewRegistrations": { "type": "boolean" },
+        "maintenanceMode": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "updatedBy": { "type": "string" }
+      },
+      "required": ["id", "siteName"]
     }
   },
   "firestore": {
@@ -203,6 +241,14 @@
     "/reports/{reportId}": {
       "schema": "Report",
       "description": "User misconduct reports"
+    },
+    "/admin_logs/{logId}": {
+      "schema": "AdminLog",
+      "description": "Administrative action logs"
+    },
+    "/site_settings/{settingsId}": {
+      "schema": "SiteSettings",
+      "description": "Global site settings"
     }
   }
 }

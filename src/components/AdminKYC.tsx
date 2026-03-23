@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../firebase';
+import { db, auth, handleFirestoreError, OperationType } from '../firebase';
 import { collection, query, where, getDocs, doc, updateDoc, Timestamp } from 'firebase/firestore';
 import { UserProfile } from '../types';
 import { Check, X, Eye, Loader2, AlertCircle, User, ShieldCheck, Mail, Globe, Calendar } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+// auth import removed as it is now part of the first line
 
 export default function AdminKYC() {
+  const isAdmin = auth.currentUser?.email === 'daccumbe@gmail.com';
+
+  if (!isAdmin) return null;
   const [pendingUsers, setPendingUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -28,8 +32,7 @@ export default function AdminKYC() {
       const users = querySnapshot.docs.map(doc => doc.data() as UserProfile);
       setPendingUsers(users);
     } catch (err) {
-      console.error('Error fetching KYC:', err);
-      setError('Erro ao carregar solicitações pendentes.');
+      handleFirestoreError(err, OperationType.LIST, 'users');
     } finally {
       setLoading(false);
     }
@@ -55,8 +58,7 @@ export default function AdminKYC() {
       setRejectionReason('');
       alert(status === 'approved' ? 'Investidor aprovado com sucesso!' : 'Investidor rejeitado.');
     } catch (err) {
-      console.error('Action error:', err);
-      alert('Erro ao processar ação.');
+      handleFirestoreError(err, OperationType.UPDATE, `users/${userId}`);
     } finally {
       setActionLoading(false);
     }

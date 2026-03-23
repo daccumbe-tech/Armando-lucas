@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../firebase';
+import { db, auth, handleFirestoreError, OperationType } from '../firebase';
 import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { UserReport, UserProfile } from '../types';
 import { AlertTriangle, CheckCircle, XCircle, Trash2, Shield, User, Clock, Loader2, Ban, ShieldCheck } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+// auth import removed as it is now part of the first line
 
 export default function AdminReports() {
+  const isAdmin = auth.currentUser?.email === 'daccumbe@gmail.com';
+
+  if (!isAdmin) return null;
   const [reports, setReports] = useState<UserReport[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedReport, setSelectedReport] = useState<UserReport | null>(null);
@@ -17,6 +21,8 @@ export default function AdminReports() {
       const reportsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserReport));
       setReports(reportsData);
       setLoading(false);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'reports');
     });
 
     return () => unsubscribe();
@@ -34,8 +40,7 @@ export default function AdminReports() {
       alert('Usuário suspenso com sucesso.');
       setSelectedReport(null);
     } catch (error) {
-      console.error('Error suspending user:', error);
-      alert('Erro ao suspender usuário.');
+      handleFirestoreError(error, OperationType.UPDATE, `users/${userId}`);
     } finally {
       setActionLoading(false);
     }
@@ -61,8 +66,7 @@ export default function AdminReports() {
       alert('Usuário banido permanentemente.');
       setSelectedReport(null);
     } catch (error) {
-      console.error('Error banning user:', error);
-      alert('Erro ao banir usuário.');
+      handleFirestoreError(error, OperationType.UPDATE, `users/${userId}`);
     } finally {
       setActionLoading(false);
     }
@@ -81,8 +85,7 @@ export default function AdminReports() {
       alert('Conta reativada com sucesso.');
       setSelectedReport(null);
     } catch (error) {
-      console.error('Error reactivating user:', error);
-      alert('Erro ao reativar conta.');
+      handleFirestoreError(error, OperationType.UPDATE, `users/${userId}`);
     } finally {
       setActionLoading(false);
     }
@@ -96,7 +99,7 @@ export default function AdminReports() {
       });
       setSelectedReport(null);
     } catch (error) {
-      console.error('Error dismissing report:', error);
+      handleFirestoreError(error, OperationType.UPDATE, `reports/${reportId}`);
     } finally {
       setActionLoading(false);
     }
@@ -108,7 +111,7 @@ export default function AdminReports() {
       await deleteDoc(doc(db, 'reports', reportId));
       setSelectedReport(null);
     } catch (error) {
-      console.error('Error deleting report:', error);
+      handleFirestoreError(error, OperationType.DELETE, `reports/${reportId}`);
     }
   };
 

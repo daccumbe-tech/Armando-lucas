@@ -123,7 +123,12 @@ export default function Navbar({
                       )}
                     </div>
                     <div className="flex flex-col items-start hidden sm:flex">
-                      <span className="text-xs font-bold text-gray-900 leading-none">{user.name.split(' ')[0]}</span>
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs font-bold text-gray-900 leading-none">{user.name.split(' ')[0]}</span>
+                        {user.email === 'daccumbe@gmail.com' && (
+                          <span className="text-[10px] font-black text-indigo-600 bg-indigo-50 px-1 rounded uppercase tracking-tighter">Admin</span>
+                        )}
+                      </div>
                       <span className="text-[10px] text-gray-400 capitalize">{user.role}</span>
                     </div>
                     <ChevronDown size={14} className={`text-gray-400 transition-transform ${showUserMenu ? 'rotate-180' : ''}`} />
@@ -145,7 +150,7 @@ export default function Navbar({
                           </div>
                           
                           <button 
-                            onClick={() => navigateTo('profile')}
+                            onClick={() => navigateTo('my-profile')}
                             className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-600 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
                           >
                             <User size={18} />
@@ -160,8 +165,25 @@ export default function Navbar({
                             Analytics
                           </button>
 
-                          {user.role === 'admin' && (
+                          {user.email === 'daccumbe@gmail.com' && (
                             <>
+                              <div className="px-4 py-2 text-[10px] font-bold text-gray-400 uppercase tracking-widest border-t border-gray-50 mt-1">
+                                Administração
+                              </div>
+                              <button 
+                                onClick={() => navigateTo('admin-dashboard')}
+                                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-indigo-600 hover:bg-indigo-50 transition-colors font-bold"
+                              >
+                                <ShieldCheck size={18} />
+                                Painel Admin
+                              </button>
+                              <button 
+                                onClick={() => navigateTo('admin-users')}
+                                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-600 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
+                              >
+                                <User size={18} />
+                                Admin Usuários
+                              </button>
                               <button 
                                 onClick={() => navigateTo('admin-kyc')}
                                 className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-600 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
@@ -175,6 +197,13 @@ export default function Navbar({
                               >
                                 <Ban size={18} />
                                 Admin Reports
+                              </button>
+                              <button 
+                                onClick={() => navigateTo('admin-settings')}
+                                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-600 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
+                              >
+                                <BarChart2 size={18} />
+                                Configurações
                               </button>
                             </>
                           )}
@@ -281,14 +310,38 @@ export default function Navbar({
                   </button>
                 )}
                 <button 
+                  onClick={() => navigateTo('my-profile')}
+                  className={`w-full flex items-center gap-3 px-4 py-4 rounded-2xl text-base font-bold transition-all ${currentPage === 'my-profile' ? 'bg-indigo-50 text-indigo-600' : 'text-gray-600 hover:bg-gray-50'}`}
+                >
+                  <User size={20} />
+                  Meu Perfil
+                </button>
+                <button 
                   onClick={() => navigateTo('analytics')}
                   className={`w-full flex items-center gap-3 px-4 py-4 rounded-2xl text-base font-bold transition-all ${currentPage === 'analytics' ? 'bg-indigo-50 text-indigo-600' : 'text-gray-600 hover:bg-gray-50'}`}
                 >
                   <BarChart2 size={20} />
                   Analytics
                 </button>
-                {user.role === 'admin' && (
+                {user.email === 'daccumbe@gmail.com' && (
                   <>
+                    <div className="px-4 py-2 text-[10px] font-bold text-gray-400 uppercase tracking-widest border-t border-gray-50 mt-2">
+                      Administração
+                    </div>
+                    <button 
+                      onClick={() => navigateTo('admin-dashboard')}
+                      className={`w-full flex items-center gap-3 px-4 py-4 rounded-2xl text-base font-bold transition-all ${currentPage === 'admin-dashboard' ? 'bg-indigo-50 text-indigo-600' : 'text-indigo-600 hover:bg-indigo-50'}`}
+                    >
+                      <ShieldCheck size={20} />
+                      Painel Admin
+                    </button>
+                    <button 
+                      onClick={() => navigateTo('admin-users')}
+                      className={`w-full flex items-center gap-3 px-4 py-4 rounded-2xl text-base font-bold transition-all ${currentPage === 'admin-users' ? 'bg-indigo-50 text-indigo-600' : 'text-gray-600 hover:bg-gray-50'}`}
+                    >
+                      <User size={20} />
+                      Admin Usuários
+                    </button>
                     <button 
                       onClick={() => navigateTo('admin-kyc')}
                       className={`w-full flex items-center gap-3 px-4 py-4 rounded-2xl text-base font-bold transition-all ${currentPage === 'admin-kyc' ? 'bg-indigo-50 text-indigo-600' : 'text-gray-600 hover:bg-gray-50'}`}
@@ -302,6 +355,13 @@ export default function Navbar({
                     >
                       <Ban size={20} />
                       Admin Reports
+                    </button>
+                    <button 
+                      onClick={() => navigateTo('admin-settings')}
+                      className={`w-full flex items-center gap-3 px-4 py-4 rounded-2xl text-base font-bold transition-all ${currentPage === 'admin-settings' ? 'bg-indigo-50 text-indigo-600' : 'text-gray-600 hover:bg-gray-50'}`}
+                    >
+                      <BarChart2 size={20} />
+                      Configurações
                     </button>
                   </>
                 )}

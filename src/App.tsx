@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { auth, db, sanitizeData } from './firebase';
+import { auth, db, sanitizeData, handleFirestoreError, OperationType } from './firebase';
 import { 
   onAuthStateChanged, 
   deleteUser, 
@@ -33,6 +33,7 @@ import {
 } from 'firebase/firestore';
 import Auth from './components/Auth';
 import ProfileSetup from './components/ProfileSetup';
+import UserProfileEditor from './components/UserProfileEditor';
 import ProjectCard from './components/ProjectCard';
 import Chat from './components/Chat';
 import ConversationsList from './components/ConversationsList';
@@ -40,10 +41,15 @@ import Verification from './components/Verification';
 import KYCSubmission from './components/KYCSubmission';
 import AdminKYC from './components/AdminKYC';
 import AdminReports from './components/AdminReports';
+import AdminDashboard from './components/AdminDashboard';
+import AdminUserManagement from './components/AdminUserManagement';
+import AdminSettings from './components/AdminSettings';
+import AdminLogs from './components/AdminLogs';
 import ReportModal from './components/ReportModal';
 import TermsOfUse from './components/TermsOfUse';
 import PrivacyPolicy from './components/PrivacyPolicy';
-import { UserProfile, Project, CATEGORIES, ProjectComment, AppNotification } from './types';
+import SupportButton from './components/SupportButton';
+import { UserProfile, Project, CATEGORIES, ProjectComment, AppNotification, SiteSettings } from './types';
 import { translations, Language } from './i18n';
 import Navbar from './components/Navbar';
 import DeleteAccountModal from './components/DeleteAccountModal';
@@ -128,6 +134,7 @@ export default function App() {
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [useInvestmentFocusFilter, setUseInvestmentFocusFilter] = useState(true);
   const [language, setLanguage] = useState<Language>('pt');
+  const [siteSettings, setSiteSettings] = useState<SiteSettings | null>(null);
   const t = translations[language];
 
   // New project form state
@@ -141,6 +148,32 @@ export default function App() {
     requiredSkills: '',
     status: 'published' as 'published' | 'draft'
   });
+
+  useEffect(() => {
+    // Security check for admin routes
+    const adminRoutes = ['admin-dashboard', 'admin-kyc', 'admin-reports', 'admin-users', 'admin-settings'];
+    if (adminRoutes.includes(currentPage)) {
+      if (!user || user.email !== 'daccumbe@gmail.com') {
+        setCurrentPage('home');
+      }
+    }
+  }, [currentPage, user]);
+
+  useEffect(() => {
+    // Fetch site settings
+    const fetchSettings = async () => {
+      const docRef = doc(db, 'site_settings', 'global');
+      const unsub = onSnapshot(docRef, (docSnap) => {
+        if (docSnap.exists()) {
+          setSiteSettings(docSnap.data() as SiteSettings);
+        }
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, 'site_settings/global');
+      });
+      return unsub;
+    };
+    fetchSettings();
+  }, []);
 
   useEffect(() => {
     const q = query(collection(db, 'users'), where('isFeatured', '==', true), limit(5));
@@ -186,9 +219,11 @@ export default function App() {
               role: 'talent',
               photoURL: firebaseUser.photoURL || ''
             });
-            setCurrentPage('setup');
+            setCurrentPage('my-profile');
           }
           setLoading(false);
+        }, (error) => {
+          handleFirestoreError(error, OperationType.GET, `users/${firebaseUser.uid}`);
         });
       } else {
         setUser(null);
@@ -209,6 +244,8 @@ export default function App() {
       if (docSnap.exists()) {
         setViewingProfile({ uid: docSnap.id, ...docSnap.data() } as UserProfile);
       }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, `users/${viewingProfile.uid}`);
     });
 
     return () => unsubscribe();
@@ -231,6 +268,8 @@ export default function App() {
         return acc + (data.unreadCounts?.[user.uid] || 0);
       }, 0);
       setUnreadMessagesCount(total);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'conversations');
     });
 
     return () => unsubscribe();
@@ -251,6 +290,8 @@ export default function App() {
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setNotifications(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AppNotification)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'notifications');
     });
 
     return () => unsubscribe();
@@ -1198,10 +1239,10 @@ export default function App() {
       </AnimatePresence>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {currentPage === 'setup' && user && (
-          <ProfileSetup 
+        {currentPage === 'my-profile' && user && (
+          <UserProfileEditor 
             user={user} 
-            onComplete={(u) => { setUser(u); setCurrentPage('home'); }} 
+            onUpdate={(u) => { setUser(u); setCurrentPage('home'); }} 
             onDeleteAccount={handleDeleteAccount}
             language={language}
           />
@@ -1224,7 +1265,7 @@ export default function App() {
               </button>
               {user?.uid === viewingProfile.uid && (
                 <button 
-                  onClick={() => setCurrentPage('setup')}
+                  onClick={() => setCurrentPage('my-profile')}
                   className="text-sm font-bold text-indigo-600 bg-indigo-50 px-4 py-2 rounded-xl hover:bg-indigo-100 transition-all"
                 >
                   Editar Perfil
@@ -1255,7 +1296,7 @@ export default function App() {
                   </div>
                 </div>
                 <button 
-                  onClick={() => setCurrentPage('setup')}
+                  onClick={() => setCurrentPage('my-profile')}
                   className="bg-amber-600 text-white px-6 py-3 rounded-2xl font-bold text-sm hover:bg-amber-700 transition-all shadow-lg shadow-amber-100 whitespace-nowrap"
                 >
                   Completar Agora
@@ -1275,7 +1316,12 @@ export default function App() {
                 <div className="flex-1 w-full">
                   <div className="flex flex-col sm:flex-row items-center md:items-start gap-2 sm:gap-4 mb-4">
                     <div className="flex items-center gap-2">
-                      <h2 className="text-2xl sm:text-4xl font-extrabold text-gray-900">{viewingProfile.name}</h2>
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-2xl sm:text-4xl font-extrabold text-gray-900">{viewingProfile.name}</h2>
+                        {viewingProfile.email === 'daccumbe@gmail.com' && user?.email === 'daccumbe@gmail.com' && (
+                          <span className="text-xs font-black text-indigo-600 bg-indigo-50 px-2 py-1 rounded-lg uppercase tracking-tighter">Admin</span>
+                        )}
+                      </div>
                       {(viewingProfile.isVerified || (viewingProfile.isEmailVerified && viewingProfile.isPhoneVerified)) && (
                         <div title="Perfil Verificado">
                           <CheckCircle2 size={24} className="text-blue-500 fill-blue-50" />
@@ -1401,20 +1447,29 @@ export default function App() {
 
                   {viewingProfile.portfolio && viewingProfile.portfolio.length > 0 && (
                     <div className="mb-12">
-                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-6">Portfólio</p>
+                      <div className="flex items-center justify-between mb-8">
+                        <div>
+                          <h3 className="text-2xl font-bold text-gray-900">Portfólio</h3>
+                          <p className="text-xs text-gray-400 uppercase tracking-widest font-bold mt-1">Trabalhos e Projetos</p>
+                        </div>
+                        <div className="h-px flex-grow bg-gray-100 mx-6 hidden sm:block"></div>
+                      </div>
                       
                       {/* Images Grid */}
                       {viewingProfile.portfolio.some(item => item.type === 'image') && (
-                        <div className="mb-8">
-                          <p className="text-xs font-bold text-gray-500 mb-4 flex items-center gap-2">
-                            <ImageIcon size={14} /> Imagens
-                          </p>
+                        <div className="mb-12">
+                          <div className="flex items-center gap-2 mb-6">
+                            <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center text-amber-600">
+                              <ImageIcon size={16} />
+                            </div>
+                            <p className="text-sm font-bold text-gray-700 uppercase tracking-tight">Imagens</p>
+                          </div>
                           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                             {viewingProfile.portfolio.filter(item => item.type === 'image').map(item => (
                               <motion.div
                                 key={item.id}
                                 whileHover={{ scale: 1.02 }}
-                                className="aspect-square rounded-2xl overflow-hidden bg-gray-100 relative group cursor-pointer"
+                                className="aspect-square rounded-2xl overflow-hidden bg-gray-100 relative group cursor-pointer shadow-sm"
                                 onClick={() => window.open(item.url, '_blank')}
                               >
                                 <img 
@@ -1423,9 +1478,12 @@ export default function App() {
                                   className="w-full h-full object-cover"
                                   referrerPolicy="no-referrer"
                                 />
-                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center p-4 text-center">
-                                  <p className="text-white text-xs font-bold truncate w-full">{item.title}</p>
-                                  <Eye size={20} className="text-white mt-2" />
+                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-all duration-300 flex flex-col items-center justify-center p-4 text-center backdrop-blur-[2px]">
+                                  <p className="text-white text-sm font-bold truncate w-full mb-1">{item.title}</p>
+                                  {item.description && <p className="text-white/70 text-[10px] line-clamp-2 mb-3">{item.description}</p>}
+                                  <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-white">
+                                    <Eye size={16} />
+                                  </div>
                                 </div>
                               </motion.div>
                             ))}
@@ -1435,22 +1493,27 @@ export default function App() {
 
                       {/* Videos Section */}
                       {viewingProfile.portfolio.some(item => item.type === 'video') && (
-                        <div className="mb-8">
-                          <p className="text-xs font-bold text-gray-500 mb-4 flex items-center gap-2">
-                            <Video size={14} /> Vídeos
-                          </p>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                        <div className="mb-12">
+                          <div className="flex items-center gap-2 mb-6">
+                            <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
+                              <Video size={16} />
+                            </div>
+                            <p className="text-sm font-bold text-gray-700 uppercase tracking-tight">Vídeos</p>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
                             {viewingProfile.portfolio.filter(item => item.type === 'video').map(item => (
-                              <div key={item.id} className="space-y-2">
-                                <div className="aspect-video rounded-2xl overflow-hidden bg-black shadow-lg">
+                              <div key={item.id} className="group">
+                                <div className="aspect-video rounded-3xl overflow-hidden bg-black shadow-xl mb-4 relative">
                                   <video 
                                     src={item.url} 
                                     controls 
                                     className="w-full h-full"
                                   />
                                 </div>
-                                <p className="text-sm font-bold text-gray-900">{item.title}</p>
-                                {item.description && <p className="text-xs text-gray-500 line-clamp-2">{item.description}</p>}
+                                <div className="px-2">
+                                  <h4 className="text-lg font-bold text-gray-900 mb-1 group-hover:text-indigo-600 transition-colors">{item.title}</h4>
+                                  {item.description && <p className="text-sm text-gray-500 line-clamp-2 leading-relaxed">{item.description}</p>}
+                                </div>
                               </div>
                             ))}
                           </div>
@@ -1460,40 +1523,43 @@ export default function App() {
                       {/* Documents Section */}
                       {viewingProfile.portfolio.some(item => item.type === 'document') && (
                         <div>
-                          <p className="text-xs font-bold text-gray-500 mb-4 flex items-center gap-2">
-                            <FileText size={14} /> Documentos
-                          </p>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div className="flex items-center gap-2 mb-6">
+                            <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-600">
+                              <FileText size={16} />
+                            </div>
+                            <p className="text-sm font-bold text-gray-700 uppercase tracking-tight">Documentos</p>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                             {viewingProfile.portfolio.filter(item => item.type === 'document').map(item => (
-                              <div key={item.id} className="p-4 bg-white border border-gray-100 rounded-2xl flex items-center justify-between hover:shadow-md transition-shadow">
-                                <div className="flex items-center gap-3 overflow-hidden">
-                                  <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-600 flex-shrink-0">
-                                    <FileText size={20} />
+                              <div key={item.id} className="p-5 bg-white border border-gray-100 rounded-3xl flex items-center justify-between hover:shadow-xl hover:border-indigo-100 transition-all group">
+                                <div className="flex items-center gap-4 overflow-hidden">
+                                  <div className="w-12 h-12 bg-gray-50 rounded-2xl flex items-center justify-center text-gray-400 group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors flex-shrink-0">
+                                    <FileText size={24} />
                                   </div>
                                   <div className="overflow-hidden">
-                                    <p className="text-sm font-bold text-gray-900 truncate">{item.title}</p>
-                                    <p className="text-[10px] text-gray-400 uppercase font-bold">
-                                      {item.fileSize ? `${(item.fileSize / (1024 * 1024)).toFixed(2)} MB` : 'PDF/DOC'}
+                                    <p className="text-base font-bold text-gray-900 truncate mb-0.5">{item.title}</p>
+                                    <p className="text-[10px] text-gray-400 uppercase font-black tracking-widest">
+                                      {item.fileSize ? `${(item.fileSize / (1024 * 1024)).toFixed(2)} MB` : 'DOCUMENTO'}
                                     </p>
                                   </div>
                                 </div>
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-1">
                                   <a 
                                     href={item.url} 
                                     target="_blank" 
                                     rel="noopener noreferrer"
-                                    className="p-2 text-gray-400 hover:text-indigo-600 transition-colors"
+                                    className="p-2.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
                                     title="Visualizar"
                                   >
-                                    <Eye size={18} />
+                                    <Eye size={20} />
                                   </a>
                                   <a 
                                     href={item.url} 
                                     download={item.fileName || item.title}
-                                    className="p-2 text-gray-400 hover:text-indigo-600 transition-colors"
+                                    className="p-2.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
                                     title="Baixar"
                                   >
-                                    <Download size={18} />
+                                    <Download size={20} />
                                   </a>
                                 </div>
                               </div>
@@ -1646,12 +1712,28 @@ export default function App() {
           <KYCSubmission user={user} onUpdate={(u) => setUser(u)} />
         )}
 
-        {currentPage === 'admin-kyc' && user && user.role === 'admin' && (
+        {currentPage === 'admin-kyc' && user && user.email === 'daccumbe@gmail.com' && (
           <AdminKYC />
         )}
 
-        {currentPage === 'admin-reports' && user && user.role === 'admin' && (
+        {currentPage === 'admin-reports' && user && user.email === 'daccumbe@gmail.com' && (
           <AdminReports />
+        )}
+
+        {currentPage === 'admin-users' && user && user.email === 'daccumbe@gmail.com' && (
+          <AdminUserManagement />
+        )}
+
+        {currentPage === 'admin-settings' && user && user.email === 'daccumbe@gmail.com' && (
+          <AdminSettings />
+        )}
+
+        {currentPage === 'admin-logs' && user && user.email === 'daccumbe@gmail.com' && (
+          <AdminLogs />
+        )}
+
+        {currentPage === 'admin-dashboard' && user && user.email === 'daccumbe@gmail.com' && (
+          <AdminDashboard onNavigate={setCurrentPage} />
         )}
 
         {currentPage === 'terms' && (
@@ -1749,18 +1831,18 @@ export default function App() {
                 transition={{ duration: 0.6 }}
               >
                 <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold tracking-tight text-gray-900 mb-6 sm:mb-8 leading-tight">
-                  {t.heroTitle.split(' ').map((word, i) => (
+                  {siteSettings?.siteName || t.heroTitle.split(' ').map((word, i) => (
                     <span key={i} className={word === 'africanos' || word === 'investidores' ? 'text-indigo-600' : ''}>
                       {word}{' '}
                     </span>
                   ))}
                 </h1>
                 <p className="text-xl sm:text-2xl text-gray-500 leading-relaxed mb-10 max-w-3xl mx-auto">
-                  {t.heroSubtitle}
+                  {siteSettings?.siteDescription || t.heroSubtitle}
                 </p>
                 <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
                   <button 
-                    onClick={() => user ? setCurrentPage('setup') : setCurrentPage('auth')}
+                    onClick={() => user ? setCurrentPage('my-profile') : setCurrentPage('auth')}
                     className="w-full sm:w-auto px-8 py-4 bg-indigo-600 text-white rounded-2xl font-bold text-lg shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all transform hover:-translate-y-1"
                   >
                     {t.createProfile}
@@ -1914,7 +1996,7 @@ export default function App() {
                     <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Avaliação:</span>
                     <select 
                       value={minRating}
-                      onChange={(e) => setMinRating(Number(e.target.value))}
+                      onChange={(e) => setMinRating(Number(e.target.value) || 0)}
                       className="text-xs sm:text-sm font-medium text-gray-600 bg-gray-50 border-none rounded-lg px-2 sm:px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500"
                     >
                       <option value={0}>Todas</option>
@@ -2479,6 +2561,7 @@ export default function App() {
           currentUser={user!}
         />
       )}
+      <SupportButton />
     </div>
   );
 }

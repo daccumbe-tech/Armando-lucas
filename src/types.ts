@@ -64,6 +64,112 @@ export interface UserProfile {
   viewedProjects?: string[];
   isBanned?: boolean;
   banReason?: string;
+  isSuspicious?: boolean;
+  suspicionReason?: string;
+  reportCount?: number;
+  messageCount?: number;
+  lastMessageAt?: any;
+  dailyMessageCount?: number;
+  // New fields for comprehensive profile
+  username?: string;
+  coverURL?: string;
+  socialLinks?: {
+    instagram?: string;
+    linkedin?: string;
+    twitter?: string;
+    facebook?: string;
+    github?: string;
+    website?: string;
+  };
+  privacy?: {
+    isPublic: boolean;
+    showContacts: boolean;
+    messagePermission: 'all' | 'verified_only';
+  };
+  notificationSettings?: {
+    messages: boolean;
+    updates: boolean;
+  };
+  isDeactivated?: boolean;
+  deactivationReason?: string;
+}
+
+export type AdminAction = 'suspend' | 'ban' | 'reactivate' | 'kyc_approve' | 'kyc_reject' | 'delete_project' | 'delete_comment' | 'settings_update' | 'auto_suspend' | 'auto_suspicious';
+
+export interface AdminLog {
+  id: string;
+  adminId: string;
+  adminName: string;
+  action: AdminAction;
+  targetId?: string;
+  targetName?: string;
+  details: string;
+  createdAt: any;
+}
+
+export interface SiteSettings {
+  id: string;
+  // 1. Site Info
+  siteName: string;
+  siteSlogan: string;
+  siteDescription: string;
+  logoURL?: string;
+  faviconURL?: string;
+
+  // 2. Language & Region
+  defaultLanguage: 'pt' | 'en';
+  supportedLanguages: string[];
+  defaultRegion: string;
+
+  // 3. Contact & Communication
+  officialEmail: string;
+  whatsappNumber: string;
+  socialLinks: {
+    facebook?: string;
+    instagram?: string;
+    twitter?: string;
+    linkedin?: string;
+  };
+  autoContactMessage: string;
+
+  // 4. Security
+  enableEmailVerification: boolean;
+  enablePhoneVerification: boolean;
+  enableReCAPTCHA: boolean;
+  reportLimitForSuspension: number;
+  enableSuspiciousWordDetection: boolean;
+  suspiciousWords: string[];
+
+  // 5. Users
+  allowPublicRegistration: boolean;
+  requireManualApproval: boolean;
+  dailyMessageLimit: number;
+  maxUploadsPerDay: number;
+
+  // 6. Monetization
+  enablePremiumMode: boolean;
+  freeUserLimits: {
+    maxProjects: number;
+    maxMessagesPerDay: number;
+  };
+  premiumBenefits: string[];
+
+  // 7. Content
+  maxUploadSizeMB: number;
+  allowedFileTypes: string[];
+  enableAutoModeration: boolean;
+
+  // 8. Notifications
+  enableAutoNotifications: boolean;
+  defaultNotificationMessages: {
+    security: string;
+    alert: string;
+    welcome: string;
+  };
+
+  // Metadata
+  updatedAt: any;
+  updatedBy: string;
 }
 
 export type ReportType = 'fraude' | 'pedido_dinheiro' | 'comportamento_suspeito' | 'outro';
@@ -143,9 +249,10 @@ export interface AppNotification {
   senderId: string;
   senderName: string;
   senderPhotoURL?: string;
-  type: 'rating' | 'like' | 'comment';
-  projectTitle: string;
-  projectId: string;
+  type: 'rating' | 'like' | 'comment' | 'system' | 'warning' | 'suspension';
+  projectTitle?: string;
+  projectId?: string;
+  message?: string;
   read: boolean;
   createdAt: any;
 }

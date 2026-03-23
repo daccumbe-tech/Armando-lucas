@@ -3,7 +3,7 @@ import { db, auth, googleProvider, facebookProvider, sanitizeData, storage } fro
 import { doc, setDoc } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import { UserProfile, UserRole, CATEGORIES, PortfolioItem, PortfolioItemType } from '../types';
-import { User, Briefcase, CheckCircle, Trash2, AlertTriangle, Link as LinkIcon, Globe, Facebook, Camera, Plus, X, ExternalLink, FileText, Video, Image as ImageIcon, Loader2, Upload, Download, Eye } from 'lucide-react';
+import { User, Briefcase, CheckCircle, Trash2, AlertTriangle, Link as LinkIcon, Globe, Facebook, Camera, Plus, X, ExternalLink, FileText, Video, Image as ImageIcon, Loader2, Upload, Download, Eye, Pencil } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { linkWithPopup } from 'firebase/auth';
 import { Language, translations } from '../i18n';
@@ -43,6 +43,7 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount, langua
   const [uploadingFile, setUploadingFile] = useState<File | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [isUploading, setIsUploading] = useState(false);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [linkedProviders, setLinkedProviders] = useState<string[]>([]);
@@ -107,7 +108,7 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount, langua
     return new Promise<string>((resolve, reject) => {
       uploadTask.on('state_changed', 
         (snapshot) => {
-          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+          const progress = snapshot.totalBytes > 0 ? (snapshot.bytesTransferred / snapshot.totalBytes) * 100 : 0;
           setUploadProgress(progress);
         }, 
         (error) => {
@@ -133,7 +134,11 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount, langua
 
     try {
       let finalUrl = newPortfolioItem.url || '';
-      let fileInfo = {};
+      let fileInfo = editingIndex !== null ? {
+        fileName: portfolio[editingIndex].fileName,
+        fileSize: portfolio[editingIndex].fileSize,
+        mimeType: portfolio[editingIndex].mimeType
+      } : {};
 
       if (uploadingFile) {
         finalUrl = await handleFileUpload(uploadingFile, newPortfolioItem.type as PortfolioItemType) || '';
@@ -146,23 +151,43 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount, langua
 
       if (!finalUrl) return;
 
-      const newItem: PortfolioItem = {
-        id: Date.now().toString(),
+      const itemData: PortfolioItem = {
+        id: editingIndex !== null ? portfolio[editingIndex].id : Date.now().toString(),
         type: newPortfolioItem.type as PortfolioItemType,
-        title: newPortfolioItem.title,
+        title: newPortfolioItem.title as string,
         url: finalUrl,
         description: newPortfolioItem.description,
         ...fileInfo,
-        createdAt: new Date().toISOString()
+        createdAt: editingIndex !== null ? portfolio[editingIndex].createdAt : new Date().toISOString()
       };
 
-      setPortfolio([...portfolio, newItem]);
+      if (editingIndex !== null) {
+        const updatedPortfolio = [...portfolio];
+        updatedPortfolio[editingIndex] = itemData;
+        setPortfolio(updatedPortfolio);
+      } else {
+        setPortfolio([...portfolio, itemData]);
+      }
+
       setNewPortfolioItem({ title: '', type: 'image', description: '' });
       setUploadingFile(null);
+      setEditingIndex(null);
       setShowPortfolioModal(false);
     } catch (err) {
-      console.error('Error adding portfolio item:', err);
+      console.error('Error adding/editing portfolio item:', err);
     }
+  };
+
+  const editPortfolioItem = (index: number) => {
+    const item = portfolio[index];
+    setNewPortfolioItem({
+      title: item.title,
+      type: item.type,
+      url: item.url,
+      description: item.description
+    });
+    setEditingIndex(index);
+    setShowPortfolioModal(true);
   };
 
   const removePortfolioItem = async (index: number) => {
@@ -411,6 +436,9 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount, langua
                     </div>
                   </div>
                   <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                    <button onClick={() => editPortfolioItem(index)} className="p-2 text-gray-400 hover:text-indigo-600">
+                      <Pencil size={18} />
+                    </button>
                     <a href={item.url} target="_blank" rel="noopener noreferrer" className="p-2 text-gray-400 hover:text-indigo-600">
                       <Eye size={18} />
                     </a>
@@ -438,8 +466,18 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount, langua
                   className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl"
                 >
                   <div className="flex items-center justify-between mb-6">
-                    <h3 className="text-xl font-bold text-gray-900">{t.portfolio}</h3>
-                    <button onClick={() => setShowPortfolioModal(false)} className="p-2 hover:bg-gray-100 rounded-full">
+                    <h3 className="text-xl font-bold text-gray-900">
+                      {editingIndex !== null ? 'Editar Item' : t.portfolio}
+                    </h3>
+                    <button 
+                      onClick={() => {
+                        setShowPortfolioModal(false);
+                        setEditingIndex(null);
+                        setNewPortfolioItem({ title: '', type: 'image', description: '' });
+                        setUploadingFile(null);
+                      }} 
+                      className="p-2 hover:bg-gray-100 rounded-full"
+                    >
                       <X size={20} />
                     </button>
                   </div>
@@ -543,7 +581,7 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount, langua
 
                     <button
                       onClick={addPortfolioItem}
-                      disabled={isUploading || !newPortfolioItem.title || !uploadingFile}
+                      disabled={isUploading || !newPortfolioItem.title || (!uploadingFile && !newPortfolioItem.url)}
                       className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                     >
                       {isUploading ? (
@@ -552,7 +590,7 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount, langua
                           {t.uploading}
                         </>
                       ) : (
-                        t.addPortfolio
+                        editingIndex !== null ? 'Salvar Alterações' : t.addPortfolio
                       )}
                     </button>
                   </div>

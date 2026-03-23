@@ -109,8 +109,14 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() &&
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
-          (request.auth.token.email == "daccumbe@gmail.com" && request.auth.token.email_verified == true));
+        (request.auth.token.email.lower() == "daccumbe@gmail.com" || 
+         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
+    }
+
+    function isRecent(time) {
+      return time > request.time - duration.value(10, 'm') &&
+             time < request.time + duration.value(10, 'm');
     }
 
     function isNotBanned() {
@@ -132,6 +138,28 @@ service cloud.firestore {
              data.createdAt is timestamp;
     }
 
+    function isValidAdminLog(data) {
+      return data.keys().hasAll(['adminId', 'adminName', 'action', 'details', 'createdAt']) &&
+             data.adminId == request.auth.uid &&
+             data.adminName is string &&
+             data.action is string &&
+             data.details is string &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidSiteSettings(data) {
+      return data.keys().hasAll(['siteName', 'siteDescription', 'updatedAt', 'updatedBy']) &&
+             data.siteName is string &&
+             data.siteDescription is string &&
+             data.updatedAt is timestamp &&
+             isRecent(data.updatedAt) &&
+             data.updatedBy == request.auth.uid;
+    }
+
+    function isSuspicious() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isSuspicious == true;
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -140,7 +168,8 @@ service cloud.firestore {
       allow read: if true; // Public read for showcase
       allow create: if isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role != 'admin' || isAdmin());
       allow update: if (isOwner(userId) && isNotBanned() && isValidUser(request.resource.data) && (request.resource.data.role == resource.data.role || isAdmin())) ||
-                    (isAuthenticated() && isNotBanned() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['followers'])) ||
+                    (isAuthenticated() && isNotBanned() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['followers', 'viewedProjects', 'messageCount', 'lastMessageAt', 'dailyMessageCount'])) ||
+                    (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reportCount'])) ||
                     isAdmin();
       allow delete: if isOwner(userId) || isAdmin();
     }
@@ -199,6 +228,17 @@ service cloud.firestore {
       allow create: if isNotBanned() && isValidReport(request.resource.data) && request.resource.data.reporterId == request.auth.uid;
       allow update: if isAdmin();
       allow delete: if isAdmin();
+    }
+
+    match /admin_logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin() && isValidAdminLog(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /site_settings/{settingsId} {
+      allow read: if true;
+      allow write: if isAdmin() && isValidSiteSettings(request.resource.data);
     }
 
     // Collection Group rule for comments to allow deletion by the user who created them

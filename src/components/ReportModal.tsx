@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { db } from '../firebase';
+import { db, handleFirestoreError, OperationType } from '../firebase';
 import { collection, addDoc, serverTimestamp, query, where, getDocs, updateDoc, doc } from 'firebase/firestore';
 import { UserProfile, UserReport, ReportType } from '../types';
 import { AlertTriangle, X, Shield, CheckCircle } from 'lucide-react';
@@ -50,6 +50,27 @@ export default function ReportModal({ isOpen, onClose, targetUser, currentUser }
           status: 'suspended',
           updatedAt: serverTimestamp()
         });
+
+        // Log automatic action
+        await addDoc(collection(db, 'admin_logs'), {
+          adminId: 'system',
+          adminName: 'Sistema Inteligente',
+          action: 'user_suspended_auto',
+          targetId: targetUser.uid,
+          targetName: targetUser.name,
+          reason: 'Atingiu o limite de 3 denúncias pendentes.',
+          createdAt: serverTimestamp()
+        });
+
+        // Notify user
+        await addDoc(collection(db, 'notifications'), {
+          userId: targetUser.uid,
+          type: 'suspension',
+          title: 'Conta Suspensa Automaticamente',
+          message: 'Sua conta foi suspensa devido a múltiplas denúncias da comunidade. Entre em contato com o suporte para contestar.',
+          read: false,
+          createdAt: serverTimestamp()
+        });
       }
 
       setSuccess(true);
@@ -59,8 +80,7 @@ export default function ReportModal({ isOpen, onClose, targetUser, currentUser }
         setDescription('');
       }, 2000);
     } catch (error) {
-      console.error('Error submitting report:', error);
-      alert('Erro ao enviar denúncia. Tente novamente.');
+      handleFirestoreError(error, OperationType.WRITE, 'reports/auto_suspension');
     } finally {
       setLoading(false);
     }

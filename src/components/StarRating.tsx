@@ -61,7 +61,7 @@ export default function StarRating({ rating, count, onRate, userRating, readOnly
           );
         })}
         <span className="text-sm font-bold text-gray-700 ml-1">
-          {rating.toFixed(1)}
+          {(rating || 0).toFixed(1)}
         </span>
       </div>
       <span className="text-xs text-gray-400">
