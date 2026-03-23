@@ -40,8 +40,26 @@
         "investmentFocus": { "type": "array", "items": { "type": "string" }, "description": "Categories the investor is interested in" },
         "interests": { "type": "array", "items": { "type": "string" }, "description": "General interests/categories" },
         "viewedProjects": { "type": "array", "items": { "type": "string" }, "description": "IDs of recently viewed projects" },
+        "status": { "type": "string", "enum": ["active", "suspended", "banned"], "description": "Account status" },
         "isBanned": { "type": "boolean", "description": "Whether the user is banned" },
-        "banReason": { "type": "string", "description": "Reason for the ban" }
+        "banReason": { "type": "string", "description": "Reason for the ban" },
+        "portfolio": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "type": { "type": "string", "enum": ["image", "video", "document"] },
+              "title": { "type": "string" },
+              "url": { "type": "string", "format": "uri" },
+              "description": { "type": "string" },
+              "fileName": { "type": "string" },
+              "fileSize": { "type": "number" },
+              "mimeType": { "type": "string" },
+              "createdAt": { "type": "string", "format": "date-time" }
+            }
+          }
+        }
       },
       "required": ["uid", "name", "email", "role"]
     },

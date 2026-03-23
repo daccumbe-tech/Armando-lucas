@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { db } from '../firebase';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, query, where, getDocs, updateDoc, doc } from 'firebase/firestore';
 import { UserProfile, UserReport, ReportType } from '../types';
 import { AlertTriangle, X, Shield, CheckCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -36,6 +36,22 @@ export default function ReportModal({ isOpen, onClose, targetUser, currentUser }
       };
 
       await addDoc(collection(db, 'reports'), reportData);
+
+      // Check for automatic suspension
+      const q = query(
+        collection(db, 'reports'), 
+        where('targetId', '==', targetUser.uid), 
+        where('status', '==', 'pending')
+      );
+      const snapshot = await getDocs(q);
+      
+      if (snapshot.size >= 3) {
+        await updateDoc(doc(db, 'users', targetUser.uid), {
+          status: 'suspended',
+          updatedAt: serverTimestamp()
+        });
+      }
+
       setSuccess(true);
       setTimeout(() => {
         setSuccess(false);

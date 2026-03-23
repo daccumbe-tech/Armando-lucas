@@ -44,6 +44,7 @@ import ReportModal from './components/ReportModal';
 import TermsOfUse from './components/TermsOfUse';
 import PrivacyPolicy from './components/PrivacyPolicy';
 import { UserProfile, Project, CATEGORIES, ProjectComment, AppNotification } from './types';
+import { translations, Language } from './i18n';
 import Navbar from './components/Navbar';
 import DeleteAccountModal from './components/DeleteAccountModal';
 import Analytics from './components/Analytics';
@@ -78,7 +79,11 @@ import {
   ShieldCheck,
   Ban,
   Shield,
-  AlertTriangle
+  AlertTriangle,
+  FileText,
+  Video,
+  Image as ImageIcon,
+  Download
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -122,6 +127,8 @@ export default function App() {
   const [filterSkills, setFilterSkills] = useState('');
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [useInvestmentFocusFilter, setUseInvestmentFocusFilter] = useState(true);
+  const [language, setLanguage] = useState<Language>('pt');
+  const t = translations[language];
 
   // New project form state
   const [newProject, setNewProject] = useState({
@@ -1016,16 +1023,21 @@ export default function App() {
     );
   }
 
-  if (user?.isBanned) {
+  if (user?.status === 'suspended' || user?.status === 'banned' || user?.isBanned) {
+    const isBanned = user.status === 'banned' || user.isBanned;
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
         <div className="bg-white p-12 rounded-3xl shadow-2xl max-w-md w-full text-center border border-red-100">
           <div className="w-20 h-20 bg-red-100 rounded-2xl flex items-center justify-center text-red-600 mb-6 mx-auto">
             <Ban size={40} />
           </div>
-          <h2 className="text-3xl font-bold text-gray-900 mb-4">Conta Suspensa</h2>
+          <h2 className="text-3xl font-bold text-gray-900 mb-4">
+            {isBanned ? 'Conta Banida' : 'Conta Suspensa'}
+          </h2>
           <p className="text-gray-600 mb-8 leading-relaxed">
-            Sua conta foi suspensa por violar nossos termos de uso.
+            {isBanned 
+              ? 'Sua conta foi banida permanentemente por violação dos termos de uso.' 
+              : 'Sua conta foi suspensa por atividade suspeita.'}
             {user.banReason && (
               <span className="block mt-4 p-4 bg-red-50 rounded-xl text-red-700 text-sm font-medium">
                 Motivo: {user.banReason}
@@ -1191,6 +1203,7 @@ export default function App() {
             user={user} 
             onComplete={(u) => { setUser(u); setCurrentPage('home'); }} 
             onDeleteAccount={handleDeleteAccount}
+            language={language}
           />
         )}
 
@@ -1383,6 +1396,111 @@ export default function App() {
                           </span>
                         ))}
                       </div>
+                    </div>
+                  )}
+
+                  {viewingProfile.portfolio && viewingProfile.portfolio.length > 0 && (
+                    <div className="mb-12">
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-6">Portfólio</p>
+                      
+                      {/* Images Grid */}
+                      {viewingProfile.portfolio.some(item => item.type === 'image') && (
+                        <div className="mb-8">
+                          <p className="text-xs font-bold text-gray-500 mb-4 flex items-center gap-2">
+                            <ImageIcon size={14} /> Imagens
+                          </p>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                            {viewingProfile.portfolio.filter(item => item.type === 'image').map(item => (
+                              <motion.div
+                                key={item.id}
+                                whileHover={{ scale: 1.02 }}
+                                className="aspect-square rounded-2xl overflow-hidden bg-gray-100 relative group cursor-pointer"
+                                onClick={() => window.open(item.url, '_blank')}
+                              >
+                                <img 
+                                  src={item.url} 
+                                  alt={item.title} 
+                                  className="w-full h-full object-cover"
+                                  referrerPolicy="no-referrer"
+                                />
+                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center p-4 text-center">
+                                  <p className="text-white text-xs font-bold truncate w-full">{item.title}</p>
+                                  <Eye size={20} className="text-white mt-2" />
+                                </div>
+                              </motion.div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Videos Section */}
+                      {viewingProfile.portfolio.some(item => item.type === 'video') && (
+                        <div className="mb-8">
+                          <p className="text-xs font-bold text-gray-500 mb-4 flex items-center gap-2">
+                            <Video size={14} /> Vídeos
+                          </p>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                            {viewingProfile.portfolio.filter(item => item.type === 'video').map(item => (
+                              <div key={item.id} className="space-y-2">
+                                <div className="aspect-video rounded-2xl overflow-hidden bg-black shadow-lg">
+                                  <video 
+                                    src={item.url} 
+                                    controls 
+                                    className="w-full h-full"
+                                  />
+                                </div>
+                                <p className="text-sm font-bold text-gray-900">{item.title}</p>
+                                {item.description && <p className="text-xs text-gray-500 line-clamp-2">{item.description}</p>}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Documents Section */}
+                      {viewingProfile.portfolio.some(item => item.type === 'document') && (
+                        <div>
+                          <p className="text-xs font-bold text-gray-500 mb-4 flex items-center gap-2">
+                            <FileText size={14} /> Documentos
+                          </p>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {viewingProfile.portfolio.filter(item => item.type === 'document').map(item => (
+                              <div key={item.id} className="p-4 bg-white border border-gray-100 rounded-2xl flex items-center justify-between hover:shadow-md transition-shadow">
+                                <div className="flex items-center gap-3 overflow-hidden">
+                                  <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-600 flex-shrink-0">
+                                    <FileText size={20} />
+                                  </div>
+                                  <div className="overflow-hidden">
+                                    <p className="text-sm font-bold text-gray-900 truncate">{item.title}</p>
+                                    <p className="text-[10px] text-gray-400 uppercase font-bold">
+                                      {item.fileSize ? `${(item.fileSize / (1024 * 1024)).toFixed(2)} MB` : 'PDF/DOC'}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <a 
+                                    href={item.url} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    className="p-2 text-gray-400 hover:text-indigo-600 transition-colors"
+                                    title="Visualizar"
+                                  >
+                                    <Eye size={18} />
+                                  </a>
+                                  <a 
+                                    href={item.url} 
+                                    download={item.fileName || item.title}
+                                    className="p-2 text-gray-400 hover:text-indigo-600 transition-colors"
+                                    title="Baixar"
+                                  >
+                                    <Download size={18} />
+                                  </a>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -1624,13 +1742,37 @@ export default function App() {
               </section>
             )}
 
-            <header className="text-center max-w-3xl mx-auto py-8 sm:py-12 px-4">
-              <h1 className="text-3xl sm:text-4xl md:text-5xl font-extrabold tracking-tight text-gray-900 mb-4 sm:mb-6">
-                Descubra o Próximo <span className="text-indigo-600">Grande Talento</span>
-              </h1>
-              <p className="text-lg sm:text-xl text-gray-500 leading-relaxed">
-                Uma vitrine para jovens mentes brilhantes e uma oportunidade única para investidores visionários.
-              </p>
+            <header className="text-center max-w-4xl mx-auto py-12 sm:py-20 px-4">
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6 }}
+              >
+                <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold tracking-tight text-gray-900 mb-6 sm:mb-8 leading-tight">
+                  {t.heroTitle.split(' ').map((word, i) => (
+                    <span key={i} className={word === 'africanos' || word === 'investidores' ? 'text-indigo-600' : ''}>
+                      {word}{' '}
+                    </span>
+                  ))}
+                </h1>
+                <p className="text-xl sm:text-2xl text-gray-500 leading-relaxed mb-10 max-w-3xl mx-auto">
+                  {t.heroSubtitle}
+                </p>
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+                  <button 
+                    onClick={() => user ? setCurrentPage('setup') : setCurrentPage('auth')}
+                    className="w-full sm:w-auto px-8 py-4 bg-indigo-600 text-white rounded-2xl font-bold text-lg shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all transform hover:-translate-y-1"
+                  >
+                    {t.createProfile}
+                  </button>
+                  <button 
+                    onClick={() => user ? setCurrentPage('home') : setCurrentPage('auth')}
+                    className="w-full sm:w-auto px-8 py-4 bg-white text-indigo-600 border-2 border-indigo-50 rounded-2xl font-bold text-lg hover:border-indigo-200 transition-all transform hover:-translate-y-1"
+                  >
+                    {t.imInvestor}
+                  </button>
+                </div>
+              </motion.div>
             </header>
 
             <div className="flex flex-col gap-6 bg-white p-4 sm:p-6 rounded-3xl shadow-sm border border-gray-100">

@@ -22,13 +22,32 @@ export default function AdminReports() {
     return () => unsubscribe();
   }, []);
 
-  const handleBanUser = async (userId: string, reason: string) => {
-    if (!window.confirm('Tem certeza que deseja banir este usuário?')) return;
+  const handleSuspendUser = async (userId: string) => {
+    if (!window.confirm('Suspender este usuário temporariamente?')) return;
     
     setActionLoading(true);
     try {
       await updateDoc(doc(db, 'users', userId), {
-        isBanned: true,
+        status: 'suspended',
+        updatedAt: serverTimestamp()
+      });
+      alert('Usuário suspenso com sucesso.');
+      setSelectedReport(null);
+    } catch (error) {
+      console.error('Error suspending user:', error);
+      alert('Erro ao suspender usuário.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleBanUser = async (userId: string, reason: string) => {
+    if (!window.confirm('Tem certeza que deseja banir este usuário permanentemente?')) return;
+    
+    setActionLoading(true);
+    try {
+      await updateDoc(doc(db, 'users', userId), {
+        status: 'banned',
         banReason: reason,
         updatedAt: serverTimestamp()
       });
@@ -39,7 +58,7 @@ export default function AdminReports() {
         });
       }
       
-      alert('Usuário banido com sucesso.');
+      alert('Usuário banido permanentemente.');
       setSelectedReport(null);
     } catch (error) {
       console.error('Error banning user:', error);
@@ -49,21 +68,21 @@ export default function AdminReports() {
     }
   };
 
-  const handleUnbanUser = async (userId: string) => {
-    if (!window.confirm('Tem certeza que deseja desbanir este usuário?')) return;
+  const handleReactivateUser = async (userId: string) => {
+    if (!window.confirm('Reativar a conta deste usuário?')) return;
     
     setActionLoading(true);
     try {
       await updateDoc(doc(db, 'users', userId), {
-        isBanned: false,
+        status: 'active',
         banReason: null,
         updatedAt: serverTimestamp()
       });
-      alert('Usuário desbanido com sucesso.');
+      alert('Conta reativada com sucesso.');
       setSelectedReport(null);
     } catch (error) {
-      console.error('Error unbanning user:', error);
-      alert('Erro ao desbanir usuário.');
+      console.error('Error reactivating user:', error);
+      alert('Erro ao reativar conta.');
     } finally {
       setActionLoading(false);
     }
@@ -223,16 +242,36 @@ export default function AdminReports() {
                   <div className="pt-6 border-t border-gray-100 space-y-3">
                     <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-2">Ações Administrativas</label>
                     
-                    <button
-                      onClick={() => handleBanUser(selectedReport.targetId, selectedReport.description)}
-                      disabled={actionLoading}
-                      className="w-full flex items-center justify-center gap-2 bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition-all shadow-lg shadow-red-100 disabled:opacity-50"
-                    >
-                      <Ban size={18} />
-                      Banir Usuário
-                    </button>
+                    <div className="grid grid-cols-1 gap-3">
+                      <button
+                        onClick={() => handleSuspendUser(selectedReport.targetId)}
+                        disabled={actionLoading}
+                        className="w-full flex items-center justify-center gap-2 bg-amber-500 text-white py-3 rounded-xl font-bold hover:bg-amber-600 transition-all shadow-lg shadow-amber-100 disabled:opacity-50"
+                      >
+                        <Ban size={18} />
+                        Suspender Usuário
+                      </button>
 
-                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        onClick={() => handleBanUser(selectedReport.targetId, selectedReport.description)}
+                        disabled={actionLoading}
+                        className="w-full flex items-center justify-center gap-2 bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition-all shadow-lg shadow-red-100 disabled:opacity-50"
+                      >
+                        <Trash2 size={18} />
+                        Banir Permanentemente
+                      </button>
+
+                      <button
+                        onClick={() => handleReactivateUser(selectedReport.targetId)}
+                        disabled={actionLoading}
+                        className="w-full flex items-center justify-center gap-2 bg-green-600 text-white py-3 rounded-xl font-bold hover:bg-green-700 transition-all shadow-lg shadow-green-100 disabled:opacity-50"
+                      >
+                        <ShieldCheck size={18} />
+                        Reativar Conta
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 pt-3">
                       <button
                         onClick={() => handleDismissReport(selectedReport.id)}
                         disabled={actionLoading}
@@ -244,7 +283,7 @@ export default function AdminReports() {
                         onClick={() => handleDeleteReport(selectedReport.id)}
                         className="flex items-center justify-center gap-2 bg-white border border-red-100 text-red-600 py-3 rounded-xl font-bold hover:bg-red-50 transition-all"
                       >
-                        <Trash2 size={18} />
+                        <XCircle size={18} />
                         Excluir
                       </button>
                     </div>

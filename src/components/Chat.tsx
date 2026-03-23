@@ -80,10 +80,11 @@ export default function Chat({ conversationId, currentUser, onReport }: ChatProp
 
   const isChatAccepted = conversation?.acceptedBy?.includes(currentUser.uid);
   const isMutuallyAccepted = conversation?.acceptedBy?.length === 2;
+  const isSuspended = currentUser.status === 'suspended' || currentUser.status === 'banned';
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !conversation) return;
+    if (!newMessage.trim() || !conversation || isSuspended) return;
 
     setError(null);
     
@@ -268,30 +269,41 @@ export default function Chat({ conversationId, currentUser, onReport }: ChatProp
             </p>
           </div>
         ) : null}
-
-        <form onSubmit={handleSendMessage} className="flex gap-2 mt-2">
-          <div className="relative flex-1">
-            <input
-              type="text"
-              placeholder="Digite sua mensagem..."
-              value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
-              className="w-full pl-4 pr-12 py-3 bg-gray-50 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-            />
-            <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
-              <button type="button" className="p-1 text-gray-400 hover:text-indigo-600 transition-colors">
-                <LinkIcon size={18} />
-              </button>
-            </div>
+ 
+        {isSuspended ? (
+          <div className="p-4 bg-red-50 rounded-2xl border border-red-100 flex items-center gap-3">
+            <AlertTriangle className="text-red-600" size={20} />
+            <p className="text-sm font-bold text-red-900">
+              {currentUser.status === 'suspended' 
+                ? 'Sua conta foi suspensa por atividade suspeita' 
+                : 'Sua conta foi banida permanentemente'}
+            </p>
           </div>
-          <button
-            type="submit"
-            disabled={sending || !newMessage.trim()}
-            className="p-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all disabled:opacity-50 shadow-lg shadow-indigo-100"
-          >
-            {sending ? <Loader2 className="animate-spin" size={20} /> : <Send size={20} />}
-          </button>
-        </form>
+        ) : (
+          <form onSubmit={handleSendMessage} className="flex gap-2 mt-2">
+            <div className="relative flex-1">
+              <input
+                type="text"
+                placeholder="Digite sua mensagem..."
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                className="w-full pl-4 pr-12 py-3 bg-gray-50 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+              />
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                <button type="button" className="p-1 text-gray-400 hover:text-indigo-600 transition-colors">
+                  <LinkIcon size={18} />
+                </button>
+              </div>
+            </div>
+            <button
+              type="submit"
+              disabled={sending || !newMessage.trim()}
+              className="p-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all disabled:opacity-50 shadow-lg shadow-indigo-100"
+            >
+              {sending ? <Loader2 className="animate-spin" size={20} /> : <Send size={20} />}
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );

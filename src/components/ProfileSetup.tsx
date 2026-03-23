@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
-import { db, auth, googleProvider, facebookProvider, sanitizeData } from '../firebase';
+import { db, auth, googleProvider, facebookProvider, sanitizeData, storage } from '../firebase';
 import { doc, setDoc } from 'firebase/firestore';
-import { UserProfile, UserRole, CATEGORIES } from '../types';
-import { User, Briefcase, CheckCircle, Trash2, AlertTriangle, Link as LinkIcon, Globe, Facebook } from 'lucide-react';
-import { motion } from 'motion/react';
+import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
+import { UserProfile, UserRole, CATEGORIES, PortfolioItem, PortfolioItemType } from '../types';
+import { User, Briefcase, CheckCircle, Trash2, AlertTriangle, Link as LinkIcon, Globe, Facebook, Camera, Plus, X, ExternalLink, FileText, Video, Image as ImageIcon, Loader2, Upload, Download, Eye } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { linkWithPopup } from 'firebase/auth';
+import { Language, translations } from '../i18n';
 
 import DeleteAccountModal from './DeleteAccountModal';
 
@@ -12,9 +14,11 @@ interface ProfileSetupProps {
   user: UserProfile;
   onComplete: (user: UserProfile) => void;
   onDeleteAccount: (password?: string) => Promise<void>;
+  language: Language;
 }
 
-export default function ProfileSetup({ user, onComplete, onDeleteAccount }: ProfileSetupProps) {
+export default function ProfileSetup({ user, onComplete, onDeleteAccount, language }: ProfileSetupProps) {
+  const t = translations[language];
   const [role, setRole] = useState<UserRole>(user.role || 'talent');
   const [category, setCategory] = useState(user.category || CATEGORIES[0]);
   const [bio, setBio] = useState(user.bio || '');
@@ -25,13 +29,25 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount }: Prof
   const [city, setCity] = useState(user.city || '');
   const [country, setCountry] = useState(user.country || '');
   const [phone, setPhone] = useState(user.phone || '');
+  const [photoURL, setPhotoURL] = useState(user.photoURL || '');
   const [isVerified, setIsVerified] = useState(user.isVerified || false);
   const [company, setCompany] = useState(user.company || '');
   const [selectedInterests, setSelectedInterests] = useState<string[]>(user.interests || []);
+  const [portfolio, setPortfolio] = useState<PortfolioItem[]>(user.portfolio || []);
+  const [showPortfolioModal, setShowPortfolioModal] = useState(false);
+  const [newPortfolioItem, setNewPortfolioItem] = useState<Partial<PortfolioItem>>({ 
+    title: '', 
+    type: 'image',
+    description: '' 
+  });
+  const [uploadingFile, setUploadingFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [isUploading, setIsUploading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [linkedProviders, setLinkedProviders] = useState<string[]>([]);
   const [linkError, setLinkError] = useState<string | null>(null);
+  const isSuspended = user.status === 'suspended' || user.status === 'banned';
 
   useEffect(() => {
     if (auth.currentUser) {
@@ -39,6 +55,131 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount }: Prof
       setLinkedProviders(providers);
     }
   }, []);
+
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPhotoURL(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleFileUpload = async (file: File, type: PortfolioItemType) => {
+    if (!auth.currentUser) return;
+    
+    // Security: Limit size (10MB)
+    const MAX_SIZE = 10 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      alert('O arquivo é muito grande. O limite é 10MB.');
+      return;
+    }
+
+    // Validate types
+    const allowedImageTypes = ['image/jpeg', 'image/png'];
+    const allowedVideoTypes = ['video/mp4', 'video/webm'];
+    const allowedDocTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+
+    if (type === 'image' && !allowedImageTypes.includes(file.type)) {
+      alert('Formato de imagem não suportado. Use JPG ou PNG.');
+      return;
+    }
+    if (type === 'video' && !allowedVideoTypes.includes(file.type)) {
+      alert('Formato de vídeo não suportado. Use MP4 ou WebM.');
+      return;
+    }
+    if (type === 'document' && !allowedDocTypes.includes(file.type)) {
+      alert('Formato de documento não suportado. Use PDF, DOC ou DOCX.');
+      return;
+    }
+
+    setIsUploading(true);
+    setUploadProgress(0);
+
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+    const storageRef = ref(storage, `portfolios/${auth.currentUser.uid}/${fileName}`);
+    
+    const uploadTask = uploadBytesResumable(storageRef, file);
+
+    return new Promise<string>((resolve, reject) => {
+      uploadTask.on('state_changed', 
+        (snapshot) => {
+          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+          setUploadProgress(progress);
+        }, 
+        (error) => {
+          console.error('Upload error:', error);
+          setIsUploading(false);
+          alert('Erro ao fazer upload do arquivo.');
+          reject(error);
+        }, 
+        async () => {
+          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+          setIsUploading(false);
+          resolve(downloadURL);
+        }
+      );
+    });
+  };
+
+  const addPortfolioItem = async () => {
+    if (!newPortfolioItem.title || (!uploadingFile && !newPortfolioItem.url)) {
+      alert('Por favor, preencha o título e selecione um arquivo.');
+      return;
+    }
+
+    try {
+      let finalUrl = newPortfolioItem.url || '';
+      let fileInfo = {};
+
+      if (uploadingFile) {
+        finalUrl = await handleFileUpload(uploadingFile, newPortfolioItem.type as PortfolioItemType) || '';
+        fileInfo = {
+          fileName: uploadingFile.name,
+          fileSize: uploadingFile.size,
+          mimeType: uploadingFile.type
+        };
+      }
+
+      if (!finalUrl) return;
+
+      const newItem: PortfolioItem = {
+        id: Date.now().toString(),
+        type: newPortfolioItem.type as PortfolioItemType,
+        title: newPortfolioItem.title,
+        url: finalUrl,
+        description: newPortfolioItem.description,
+        ...fileInfo,
+        createdAt: new Date().toISOString()
+      };
+
+      setPortfolio([...portfolio, newItem]);
+      setNewPortfolioItem({ title: '', type: 'image', description: '' });
+      setUploadingFile(null);
+      setShowPortfolioModal(false);
+    } catch (err) {
+      console.error('Error adding portfolio item:', err);
+    }
+  };
+
+  const removePortfolioItem = async (index: number) => {
+    const item = portfolio[index];
+    if (window.confirm('Tem certeza que deseja remover este item do seu portfólio?')) {
+      // If it's a storage file, try to delete it
+      if (item.url.includes('firebasestorage.googleapis.com')) {
+        try {
+          const fileRef = ref(storage, item.url);
+          await deleteObject(fileRef);
+        } catch (err) {
+          console.warn('Could not delete file from storage:', err);
+        }
+      }
+      setPortfolio(portfolio.filter((_, i) => i !== index));
+    }
+  };
 
   const handleLinkAccount = async (providerName: 'google' | 'facebook') => {
     if (!auth.currentUser) return;
@@ -84,6 +225,14 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount }: Prof
   };
 
   const handleComplete = async () => {
+    if (!photoURL) {
+      alert(t.photoRequired);
+      return;
+    }
+    if (!bio.trim()) {
+      alert(t.bioRequired);
+      return;
+    }
     setLoading(true);
     try {
       const skillsArray = skills.split(',').map(s => s.trim()).filter(s => s !== '');
@@ -91,6 +240,7 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount }: Prof
         ...user,
         role,
         email: email.trim(),
+        photoURL,
         category: role === 'talent' ? category : '',
         skills: role === 'talent' ? skillsArray : [],
         company: role === 'investor' ? company.trim() : '',
@@ -102,7 +252,8 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount }: Prof
         phone: phone.trim() || '',
         isVerified,
         location: `${city.trim()}, ${country.trim()}`,
-        bio,
+        bio: bio.trim(),
+        portfolio,
         createdAt: user.createdAt || new Date().toISOString(),
         followers: user.followers || [],
         following: user.following || []
@@ -118,8 +269,41 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount }: Prof
 
   return (
     <div className="max-w-2xl mx-auto p-8 bg-white rounded-2xl shadow-sm border border-gray-100">
-      <h2 className="text-3xl font-bold text-gray-900 mb-2">Complete seu Perfil</h2>
-      <p className="text-gray-500 mb-8">Diga-nos quem você é e o que você faz.</p>
+      {isSuspended && (
+        <div className="mb-8 p-6 bg-red-50 rounded-2xl border border-red-100 flex items-center gap-4">
+          <div className="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center text-red-600 flex-shrink-0">
+            <AlertTriangle size={24} />
+          </div>
+          <div>
+            <h3 className="font-bold text-red-900">Perfil Bloqueado</h3>
+            <p className="text-sm text-red-700">
+              {user.status === 'suspended' 
+                ? 'Sua conta foi suspensa por atividade suspeita. Entre em contato com o suporte.' 
+                : 'Sua conta foi banida permanentemente por violação dos termos.'}
+            </p>
+          </div>
+        </div>
+      )}
+
+      <h2 className="text-3xl font-bold text-gray-900 mb-2">{t.setupProfile}</h2>
+      <p className="text-gray-500 mb-8">{t.setupSubtitle}</p>
+
+      <div className="flex flex-col items-center mb-8">
+        <div className="relative group">
+          <div className="w-32 h-32 bg-gray-100 rounded-3xl flex items-center justify-center text-gray-400 overflow-hidden border-2 border-dashed border-gray-200 group-hover:border-indigo-300 transition-all">
+            {photoURL ? (
+              <img src={photoURL} alt="Profile" className="w-full h-full object-cover" />
+            ) : (
+              <Camera size={40} />
+            )}
+          </div>
+          <label className="absolute -bottom-2 -right-2 bg-indigo-600 text-white p-2 rounded-xl shadow-lg cursor-pointer hover:bg-indigo-700 transition-all">
+            <Plus size={20} />
+            <input type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" />
+          </label>
+        </div>
+        {!photoURL && <p className="mt-3 text-xs text-red-500 font-medium">{t.photoRequired}</p>}
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
         <button
@@ -133,8 +317,8 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount }: Prof
           }`}>
             <User size={24} />
           </div>
-          <h3 className="font-bold text-lg mb-1">Sou um Talento</h3>
-          <p className="text-sm text-gray-500">Quero mostrar meu trabalho e encontrar oportunidades.</p>
+          <h3 className="font-bold text-lg mb-1">{t.iAmTalent}</h3>
+          <p className="text-sm text-gray-500">{t.talentDesc}</p>
         </button>
 
         <button
@@ -148,13 +332,13 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount }: Prof
           }`}>
             <Briefcase size={24} />
           </div>
-          <h3 className="font-bold text-lg mb-1">Sou um Investidor</h3>
-          <p className="text-sm text-gray-500">Quero descobrir novos talentos e investir em projetos.</p>
+          <h3 className="font-bold text-lg mb-1">{t.iAmInvestor}</h3>
+          <p className="text-sm text-gray-500">{t.investorDesc}</p>
         </button>
       </div>
 
       <div className="mb-6">
-        <label className="block text-sm font-medium text-gray-700 mb-2">E-mail</label>
+        <label className="block text-sm font-medium text-gray-700 mb-2">{t.email}</label>
         <input
           type="email"
           value={email}
@@ -175,7 +359,7 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount }: Prof
       {role === 'talent' && (
         <>
           <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-2">Categoria Principal</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">{t.category}</label>
             <select
               value={category}
               onChange={(e) => setCategory(e.target.value)}
@@ -187,7 +371,7 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount }: Prof
             </select>
           </div>
           <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-2">Habilidades (separadas por vírgula)</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">{t.skills}</label>
             <input
               type="text"
               value={skills}
@@ -196,12 +380,192 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount }: Prof
               className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none"
             />
           </div>
+
+          <div className="mb-8">
+            <div className="flex items-center justify-between mb-4">
+              <label className="block text-sm font-medium text-gray-700">{t.portfolio}</label>
+              <button 
+                onClick={() => setShowPortfolioModal(true)}
+                className="text-xs font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
+              >
+                <Plus size={14} />
+                {t.addPortfolio}
+              </button>
+            </div>
+            
+            <div className="space-y-3">
+              {portfolio.map((item, index) => (
+                <div key={item.id || index} className="p-4 bg-gray-50 rounded-xl border border-gray-100 flex items-center justify-between group">
+                  <div className="flex items-center gap-3 overflow-hidden">
+                    <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center text-indigo-600 shadow-sm flex-shrink-0">
+                      {item.type === 'image' && <ImageIcon size={20} />}
+                      {item.type === 'video' && <Video size={20} />}
+                      {item.type === 'document' && <FileText size={20} />}
+                    </div>
+                    <div className="overflow-hidden">
+                      <p className="font-bold text-gray-900 text-sm truncate">{item.title}</p>
+                      <p className="text-xs text-gray-400 truncate">
+                        {item.type === 'image' ? 'Imagem' : item.type === 'video' ? 'Vídeo' : 'Documento'}
+                        {item.fileSize && ` • ${(item.fileSize / (1024 * 1024)).toFixed(2)} MB`}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                    <a href={item.url} target="_blank" rel="noopener noreferrer" className="p-2 text-gray-400 hover:text-indigo-600">
+                      <Eye size={18} />
+                    </a>
+                    <button onClick={() => removePortfolioItem(index)} className="p-2 text-gray-400 hover:text-red-600">
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {portfolio.length === 0 && (
+                <p className="text-xs text-gray-400 text-center py-6 border-2 border-dashed border-gray-100 rounded-xl">
+                  {t.noPortfolio}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <AnimatePresence>
+            {showPortfolioModal && (
+              <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl"
+                >
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-xl font-bold text-gray-900">{t.portfolio}</h3>
+                    <button onClick={() => setShowPortfolioModal(false)} className="p-2 hover:bg-gray-100 rounded-full">
+                      <X size={20} />
+                    </button>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-bold text-gray-400 uppercase mb-2">{t.portfolioType}</label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {[
+                          { id: 'image', icon: ImageIcon, label: t.image },
+                          { id: 'video', icon: Video, label: t.video },
+                          { id: 'document', icon: FileText, label: t.document }
+                        ].map((type) => (
+                          <button
+                            key={type.id}
+                            onClick={() => {
+                              setNewPortfolioItem({ ...newPortfolioItem, type: type.id as PortfolioItemType });
+                              setUploadingFile(null);
+                            }}
+                            className={`p-3 rounded-xl border flex flex-col items-center gap-2 transition-all ${
+                              newPortfolioItem.type === type.id 
+                                ? 'border-indigo-600 bg-indigo-50 text-indigo-600' 
+                                : 'border-gray-100 text-gray-500 hover:border-indigo-200'
+                            }`}
+                          >
+                            <type.icon size={20} />
+                            <span className="text-[10px] font-bold uppercase">{type.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-gray-400 uppercase mb-2">{t.portfolioTitle}</label>
+                      <input
+                        type="text"
+                        value={newPortfolioItem.title}
+                        onChange={(e) => setNewPortfolioItem({ ...newPortfolioItem, title: e.target.value })}
+                        placeholder={t.portfolioPlaceholder}
+                        className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-gray-400 uppercase mb-2">{t.portfolioFile}</label>
+                      <div className="relative">
+                        <input
+                          type="file"
+                          accept={
+                            newPortfolioItem.type === 'image' ? 'image/*' :
+                            newPortfolioItem.type === 'video' ? 'video/mp4,video/webm' :
+                            '.pdf,.doc,.docx'
+                          }
+                          onChange={(e) => setUploadingFile(e.target.files?.[0] || null)}
+                          className="hidden"
+                          id="portfolio-file"
+                        />
+                        <label
+                          htmlFor="portfolio-file"
+                          className="w-full p-4 rounded-xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-indigo-300 transition-all"
+                        >
+                          {uploadingFile ? (
+                            <div className="flex items-center gap-2 text-indigo-600 font-medium">
+                              <CheckCircle size={20} />
+                              <span className="text-sm truncate max-w-[200px]">{uploadingFile.name}</span>
+                            </div>
+                          ) : (
+                            <>
+                              <Upload size={24} className="text-gray-400" />
+                              <span className="text-sm text-gray-500">{t.clickToSelect}</span>
+                            </>
+                          )}
+                        </label>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-gray-400 uppercase mb-2">{t.portfolioDesc}</label>
+                      <textarea
+                        value={newPortfolioItem.description}
+                        onChange={(e) => setNewPortfolioItem({ ...newPortfolioItem, description: e.target.value })}
+                        placeholder={t.portfolioDescPlaceholder}
+                        className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none h-24 resize-none"
+                      />
+                    </div>
+
+                    {isUploading && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-xs font-bold text-indigo-600 uppercase">
+                          <span>{t.uploading}</span>
+                          <span>{Math.round(uploadProgress)}%</span>
+                        </div>
+                        <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-indigo-600 transition-all duration-300" 
+                            style={{ width: `${uploadProgress}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <button
+                      onClick={addPortfolioItem}
+                      disabled={isUploading || !newPortfolioItem.title || !uploadingFile}
+                      className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      {isUploading ? (
+                        <>
+                          <Loader2 size={20} className="animate-spin" />
+                          {t.uploading}
+                        </>
+                      ) : (
+                        t.addPortfolio
+                      )}
+                    </button>
+                  </div>
+                </motion.div>
+              </div>
+            )}
+          </AnimatePresence>
         </>
       )}
 
       {role === 'investor' && (
         <div className="mb-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">Empresa / Organização (Opcional)</label>
+          <label className="block text-sm font-medium text-gray-700 mb-2">{t.company}</label>
           <input
             type="text"
             value={company}
@@ -214,7 +578,7 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount }: Prof
 
       <div className="mb-6">
         <label className="block text-sm font-medium text-gray-700 mb-2">
-          {role === 'investor' ? 'Áreas de Interesse para Investimento' : 'Seus Interesses'}
+          {role === 'investor' ? t.investorInterests : t.interests}
         </label>
         <div className="flex flex-wrap gap-2">
           {CATEGORIES.map(cat => (
@@ -234,7 +598,7 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount }: Prof
       </div>
 
       <div className="mb-6">
-        <label className="block text-sm font-medium text-gray-700 mb-2">Telefone (Opcional)</label>
+        <label className="block text-sm font-medium text-gray-700 mb-2">{t.phone}</label>
         <input
           type="tel"
           value={phone}
@@ -245,7 +609,7 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount }: Prof
       </div>
 
       <div className="mb-6">
-        <label className="block text-sm font-medium text-gray-700 mb-2">WhatsApp (Opcional)</label>
+        <label className="block text-sm font-medium text-gray-700 mb-2">{t.whatsapp}</label>
         <input
           type="tel"
           value={whatsapp}
@@ -257,7 +621,7 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount }: Prof
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Cidade</label>
+          <label className="block text-sm font-medium text-gray-700 mb-2">{t.city}</label>
           <input
             type="text"
             value={city}
@@ -267,7 +631,7 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount }: Prof
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">País</label>
+          <label className="block text-sm font-medium text-gray-700 mb-2">{t.country}</label>
           <input
             type="text"
             value={country}
@@ -279,7 +643,7 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount }: Prof
       </div>
 
       <div className="mb-8">
-        <label className="block text-sm font-medium text-gray-700 mb-2">Bio / Descrição</label>
+        <label className="block text-sm font-medium text-gray-700 mb-2">{t.bio}</label>
         <textarea
           value={bio}
           onChange={(e) => setBio(e.target.value)}
@@ -367,13 +731,13 @@ export default function ProfileSetup({ user, onComplete, onDeleteAccount }: Prof
 
       <button
         onClick={handleComplete}
-        disabled={loading || !bio || !!emailError}
+        disabled={loading || !bio.trim() || !!emailError || isSuspended}
         className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 mb-8"
       >
-        {loading ? 'Salvando...' : (
+        {loading ? t.saving : (
           <>
             <CheckCircle size={20} />
-            Concluir Cadastro
+            {t.finishSignup}
           </>
         )}
       </button>

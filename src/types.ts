@@ -1,10 +1,27 @@
 export type UserRole = 'talent' | 'investor' | 'admin';
 
+export type UserStatus = 'active' | 'suspended' | 'banned';
+
+export type PortfolioItemType = 'image' | 'video' | 'document';
+
+export interface PortfolioItem {
+  id: string;
+  type: PortfolioItemType;
+  title: string;
+  url: string;
+  description?: string;
+  fileName?: string;
+  fileSize?: number;
+  mimeType?: string;
+  createdAt: any;
+}
+
 export interface UserProfile {
   uid: string;
   name: string;
   email: string;
   role: UserRole;
+  status?: UserStatus;
   bio?: string;
   category?: string;
   skills?: string[];
@@ -39,6 +56,7 @@ export interface UserProfile {
   createdAt?: string;
   followers?: string[];
   following?: string[];
+  portfolio?: PortfolioItem[];
   // New fields for investor management and recommendations
   company?: string;
   investmentFocus?: string[];
