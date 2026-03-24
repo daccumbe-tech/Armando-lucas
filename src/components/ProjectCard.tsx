@@ -1,5 +1,5 @@
 import { Project } from '../types';
-import { Calendar, Tag, User, ExternalLink, Heart, MessageSquare, Clock, Star } from 'lucide-react';
+import { Calendar, Tag, User, ExternalLink, Heart, MessageSquare, Clock, Star, ShieldCheck } from 'lucide-react';
 import StarRating from './StarRating';
 
 interface ProjectCardProps {
@@ -129,9 +129,12 @@ export default function ProjectCard({
             <User size={14} />
             <button 
               onClick={() => onViewProfile?.(project.talentId)}
-              className="font-medium text-indigo-600 hover:underline"
+              className="font-medium text-indigo-600 hover:underline flex items-center gap-1"
             >
               {project.talentName}
+              {project.talentIsFounder && (
+                <ShieldCheck size={12} className="text-amber-500" />
+              )}
             </button>
           </div>
           <div className="flex items-center gap-3 text-[10px] sm:text-xs font-bold text-gray-400">

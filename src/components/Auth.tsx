@@ -1,6 +1,6 @@
 import { auth, db } from '../firebase';
 import { GoogleAuthProvider, FacebookAuthProvider, signInWithPopup, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, fetchSignInMethodsForEmail, linkWithPopup } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, getCountFromServer } from 'firebase/firestore';
 import { useState, useRef } from 'react';
 import { UserProfile } from '../types';
 import { Mail, Lock, User, LogIn, UserPlus, Facebook, ShieldAlert, Ban } from 'lucide-react';
@@ -36,6 +36,17 @@ export default function Auth({ onSuccess }: AuthProps) {
       onSuccess(userData);
     } else {
       // Initial setup for new user
+      // Check if this user should be a founder (first 100 users)
+      let isFounder = false;
+      try {
+        const snapshot = await getCountFromServer(collection(db, 'users'));
+        if (snapshot.data().count < 100) {
+          isFounder = true;
+        }
+      } catch (err) {
+        console.error('Error checking user count:', err);
+      }
+
       const newUser: UserProfile = {
         uid: firebaseUser.uid,
         name: firebaseUser.displayName || name || 'Anonymous',
@@ -43,7 +54,9 @@ export default function Auth({ onSuccess }: AuthProps) {
         role: 'talent', // Default role
         photoURL: firebaseUser.photoURL || '',
         createdAt: new Date().toISOString(),
-        isBanned: false
+        isBanned: false,
+        isFounder: isFounder,
+        welcomeShown: false
       };
       onSuccess(newUser);
     }

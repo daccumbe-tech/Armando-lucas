@@ -49,6 +49,7 @@ import ReportModal from './components/ReportModal';
 import TermsOfUse from './components/TermsOfUse';
 import PrivacyPolicy from './components/PrivacyPolicy';
 import SupportButton from './components/SupportButton';
+import WelcomeModal from './components/WelcomeModal';
 import { UserProfile, Project, CATEGORIES, ProjectComment, AppNotification, SiteSettings } from './types';
 import { translations, Language } from './i18n';
 import Navbar from './components/Navbar';
@@ -112,6 +113,8 @@ export default function App() {
   const [showSecurityAlert, setShowSecurityAlert] = useState(true);
   const [chatRecipient, setChatRecipient] = useState<UserProfile | undefined>(undefined);
   const [featuredTalents, setFeaturedTalents] = useState<UserProfile[]>([]);
+  const [talentOfTheWeek, setTalentOfTheWeek] = useState<UserProfile | null>(null);
+  const [showWelcomeModal, setShowWelcomeModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [comments, setComments] = useState<ProjectComment[]>([]);
   const [newComment, setNewComment] = useState('');
@@ -181,6 +184,20 @@ export default function App() {
       setFeaturedTalents(snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile)));
     }, (error) => {
       console.error("Error fetching featured talents:", error);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const q = query(collection(db, 'users'), where('isTalentOfTheWeek', '==', true), limit(1));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      if (!snapshot.empty) {
+        setTalentOfTheWeek({ uid: snapshot.docs[0].id, ...snapshot.docs[0].data() } as UserProfile);
+      } else {
+        setTalentOfTheWeek(null);
+      }
+    }, (error) => {
+      console.error("Error fetching talent of the week:", error);
     });
     return () => unsubscribe();
   }, []);
@@ -274,6 +291,12 @@ export default function App() {
 
     return () => unsubscribe();
   }, [user?.uid]);
+
+  useEffect(() => {
+    if (user && user.welcomeShown === false) {
+      setShowWelcomeModal(true);
+    }
+  }, [user?.uid, user?.welcomeShown]);
 
   useEffect(() => {
     if (!user) {
@@ -498,6 +521,7 @@ export default function App() {
         talentName: user.name,
         talentEmail: user.email,
         talentLocation: user.location || '',
+        talentIsFounder: user.isFounder || false,
         createdAt: serverTimestamp(),
         likesCount: 0,
         commentsCount: 0,
@@ -895,6 +919,31 @@ export default function App() {
     }
 
     window.open(`https://wa.me/${recipient.whatsapp.replace(/\D/g, '')}`, '_blank');
+  };
+
+  const handleWelcomeAction = async (action: 'complete-profile' | 'explore-talents') => {
+    if (!user) return;
+    try {
+      await updateDoc(doc(db, 'users', user.uid), { welcomeShown: true });
+      setShowWelcomeModal(false);
+      if (action === 'complete-profile') {
+        setCurrentPage('my-profile');
+      } else {
+        setCurrentPage('home');
+      }
+    } catch (err) {
+      console.error('Error updating welcomeShown:', err);
+    }
+  };
+
+  const handleCloseWelcome = async () => {
+    if (!user) return;
+    try {
+      await updateDoc(doc(db, 'users', user.uid), { welcomeShown: true });
+      setShowWelcomeModal(false);
+    } catch (err) {
+      console.error('Error updating welcomeShown:', err);
+    }
   };
 
   const handleDeleteAccount = async (password?: string) => {
@@ -1320,6 +1369,12 @@ export default function App() {
                         <h2 className="text-2xl sm:text-4xl font-extrabold text-gray-900">{viewingProfile.name}</h2>
                         {viewingProfile.email === 'daccumbe@gmail.com' && user?.email === 'daccumbe@gmail.com' && (
                           <span className="text-xs font-black text-indigo-600 bg-indigo-50 px-2 py-1 rounded-lg uppercase tracking-tighter">Admin</span>
+                        )}
+                        {viewingProfile.isFounder && (
+                          <div className="flex items-center gap-1 bg-amber-100 text-amber-700 px-2 py-1 rounded-lg text-[10px] font-bold" title="Usuário Fundador">
+                            <ShieldCheck size={14} />
+                            <span>FUNDADOR</span>
+                          </div>
                         )}
                       </div>
                       {(viewingProfile.isVerified || (viewingProfile.isEmailVerified && viewingProfile.isPhoneVerified)) && (
@@ -2008,6 +2063,111 @@ export default function App() {
               </div>
             </div>
 
+            <div className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-100 shadow-sm mb-12">
+              <div className="flex flex-col lg:flex-row gap-12">
+                {/* Talent of the Week */}
+                <div className="lg:w-1/3">
+                  <div className="flex items-center gap-2 mb-6">
+                    <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center text-amber-600">
+                      <Star size={18} fill="currentColor" />
+                    </div>
+                    <h3 className="text-lg font-bold text-gray-900">Talento da Semana</h3>
+                  </div>
+                  
+                  {talentOfTheWeek ? (
+                    <motion.div 
+                      whileHover={{ y: -4 }}
+                      onClick={() => handleViewProfile(talentOfTheWeek.uid)}
+                      className="bg-gradient-to-br from-indigo-600 to-indigo-800 rounded-3xl p-6 text-white cursor-pointer shadow-xl shadow-indigo-100 relative overflow-hidden group"
+                    >
+                      <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 blur-2xl group-hover:bg-white/20 transition-all" />
+                      <div className="relative z-10">
+                        <div className="flex items-center gap-4 mb-4">
+                          <div className="w-16 h-16 rounded-2xl bg-white/20 backdrop-blur-md border border-white/30 overflow-hidden">
+                            {talentOfTheWeek.photoURL ? (
+                              <img src={talentOfTheWeek.photoURL} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-2xl font-bold">
+                                {talentOfTheWeek.name.charAt(0)}
+                              </div>
+                            )}
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-lg leading-tight">{talentOfTheWeek.name}</h4>
+                            <p className="text-indigo-100 text-xs font-medium uppercase tracking-wider mt-1">{talentOfTheWeek.category}</p>
+                          </div>
+                        </div>
+                        <p className="text-indigo-50 text-sm line-clamp-3 mb-4 italic">
+                          "{talentOfTheWeek.bio || 'Inspirando o mundo com talento e dedicação.'}"
+                        </p>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1">
+                            <Star size={14} className="text-amber-300 fill-amber-300" />
+                            <span className="text-sm font-bold">{talentOfTheWeek.rating?.average?.toFixed(1) || '5.0'}</span>
+                          </div>
+                          <span className="text-[10px] font-black bg-white/20 px-2 py-1 rounded-lg uppercase tracking-tighter">Ver Perfil</span>
+                        </div>
+                      </div>
+                    </motion.div>
+                  ) : (
+                    <div className="bg-gray-50 rounded-3xl p-8 border-2 border-dashed border-gray-200 text-center">
+                      <p className="text-gray-400 text-sm font-medium">Aguardando o próximo destaque...</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Featured Talents */}
+                <div className="flex-1">
+                  <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-600">
+                        <Award size={18} />
+                      </div>
+                      <h3 className="text-lg font-bold text-gray-900">Talentos em Destaque</h3>
+                    </div>
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Crescimento Acelerado</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                    {featuredTalents.length > 0 ? (
+                      featuredTalents.map(talent => (
+                        <motion.div
+                          key={talent.uid}
+                          whileHover={{ scale: 1.02 }}
+                          onClick={() => handleViewProfile(talent.uid)}
+                          className="bg-gray-50 rounded-2xl p-4 border border-gray-100 hover:bg-white hover:shadow-md transition-all cursor-pointer group"
+                        >
+                          <div className="flex flex-col items-center text-center">
+                            <div className="w-14 h-14 rounded-xl bg-indigo-600 mb-3 overflow-hidden shadow-sm group-hover:shadow-indigo-100 transition-all">
+                              {talent.photoURL ? (
+                                <img src={talent.photoURL} alt="" className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-white font-bold">
+                                  {talent.name.charAt(0)}
+                                </div>
+                              )}
+                            </div>
+                            <h4 className="text-sm font-bold text-gray-900 truncate w-full">{talent.name}</h4>
+                            <p className="text-[10px] text-gray-500 font-medium uppercase tracking-wider mt-1">{talent.category}</p>
+                            {talent.isFounder && (
+                              <div className="mt-2 flex items-center gap-1 bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-tighter">
+                                <ShieldCheck size={10} />
+                                <span>Fundador</span>
+                              </div>
+                            )}
+                          </div>
+                        </motion.div>
+                      ))
+                    ) : (
+                      <div className="col-span-full py-12 text-center bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+                        <p className="text-gray-400 text-sm">Novos talentos em destaque em breve!</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
               {filteredProjects.map(project => (
                 <ProjectCard 
@@ -2508,6 +2668,14 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Welcome Modal */}
+      <WelcomeModal
+        isOpen={showWelcomeModal}
+        onClose={handleCloseWelcome}
+        onAction={handleWelcomeAction}
+        userRole={user?.role || 'talent'}
+      />
 
       <footer className="bg-white border-t border-gray-100 py-12 mt-20 relative">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">

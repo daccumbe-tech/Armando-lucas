@@ -76,6 +76,10 @@ service cloud.firestore {
              (!('interests' in data) || data.interests is list) &&
              (!('viewedProjects' in data) || data.viewedProjects is list) &&
              (!('status' in data) || data.status in ['active', 'suspended', 'banned']) &&
+             (!('isFeatured' in data) || data.isFeatured is bool) &&
+             (!('isFounder' in data) || data.isFounder is bool) &&
+             (!('isTalentOfTheWeek' in data) || data.isTalentOfTheWeek is bool) &&
+             (!('welcomeShown' in data) || data.welcomeShown is bool) &&
              (!('portfolio' in data) || data.portfolio is list);
     }
 
@@ -167,7 +171,8 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if true; // Public read for showcase
       allow create: if isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role != 'admin' || isAdmin());
-      allow update: if (isOwner(userId) && isNotBanned() && isValidUser(request.resource.data) && (request.resource.data.role == resource.data.role || isAdmin())) ||
+      allow update: if (isOwner(userId) && isNotBanned() && isValidUser(request.resource.data) && (request.resource.data.role == resource.data.role || isAdmin()) && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['isFeatured', 'isFounder', 'isTalentOfTheWeek', 'isVerified', 'isInvestorVerified', 'status', 'isBanned', 'isSuspicious']) || isAdmin())) ||
+                    (isOwner(userId) && isNotBanned() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['welcomeShown'])) ||
                     (isAuthenticated() && isNotBanned() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['followers', 'viewedProjects', 'messageCount', 'lastMessageAt', 'dailyMessageCount'])) ||
                     (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reportCount'])) ||
                     isAdmin();

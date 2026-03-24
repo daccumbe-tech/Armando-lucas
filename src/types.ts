@@ -37,6 +37,8 @@ export interface UserProfile {
     ratedBy: string[];
   };
   isFeatured?: boolean;
+  isFounder?: boolean;
+  isTalentOfTheWeek?: boolean;
   isVerified?: boolean; // General verification status
   isEmailVerified?: boolean;
   isPhoneVerified?: boolean;
@@ -70,6 +72,7 @@ export interface UserProfile {
   messageCount?: number;
   lastMessageAt?: any;
   dailyMessageCount?: number;
+  welcomeShown?: boolean;
   // New fields for comprehensive profile
   username?: string;
   coverURL?: string;
@@ -192,6 +195,7 @@ export interface Project {
   talentName: string;
   talentEmail: string;
   talentLocation?: string;
+  talentIsFounder?: boolean;
   title: string;
   description: string;
   category: string;

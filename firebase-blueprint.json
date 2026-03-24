@@ -17,6 +17,8 @@
         "phone": { "type": "string", "description": "Phone number for OTP" },
         "location": { "type": "string", "description": "User location (City/State)" },
         "isFeatured": { "type": "boolean", "description": "Whether the talent is featured" },
+        "isFounder": { "type": "boolean", "description": "Whether the user is a founder" },
+        "isTalentOfTheWeek": { "type": "boolean", "description": "Whether the user is the talent of the week" },
         "isVerified": { "type": "boolean", "description": "General verification status" },
         "isEmailVerified": { "type": "boolean", "description": "Email verification status" },
         "isPhoneVerified": { "type": "boolean", "description": "Phone verification status" },
@@ -49,6 +51,7 @@
         "messageCount": { "type": "integer", "description": "Total messages sent" },
         "lastMessageAt": { "type": "string", "format": "date-time" },
         "dailyMessageCount": { "type": "integer" },
+        "welcomeShown": { "type": "boolean", "description": "Whether the welcome message has been shown" },
         "portfolio": {
           "type": "array",
           "items": {
