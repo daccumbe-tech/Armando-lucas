@@ -18,6 +18,7 @@ import {
   onSnapshot, 
   doc, 
   getDoc, 
+  setDoc,
   addDoc, 
   serverTimestamp, 
   deleteDoc, 
@@ -189,9 +190,26 @@ export default function App() {
   }, [currentPage, user]);
 
   useEffect(() => {
-    // Fetch site settings
+    // Fetch site settings and ensure global document exists
     const fetchSettings = async () => {
       const docRef = doc(db, 'site_settings', 'global');
+      
+      // Check if exists first
+      try {
+        const snap = await getDoc(docRef);
+        if (!snap.exists()) {
+          // Create default settings if missing
+          await setDoc(docRef, {
+            siteName: 'TalentLink',
+            siteDescription: 'Conectando talentos a investidores.',
+            updatedAt: serverTimestamp(),
+            updatedBy: 'system'
+          });
+        }
+      } catch (err) {
+        console.error("Error checking/creating site settings:", err);
+      }
+
       const unsub = onSnapshot(docRef, (docSnap) => {
         if (docSnap.exists()) {
           setSiteSettings(docSnap.data() as SiteSettings);
