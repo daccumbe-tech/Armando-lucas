@@ -59,6 +59,16 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     path
   }
   console.error('Firestore Error: ', JSON.stringify(errInfo));
+  
+  // Log to Firestore automatically
+  import('./logger').then(({ logErrorToFirestore }) => {
+    logErrorToFirestore({
+      errorMessage: `Firestore ${operationType} error at ${path}: ${errInfo.error}`,
+      errorStack: error instanceof Error ? error.stack : undefined,
+      url: window.location.href,
+    });
+  }).catch(err => console.error('Failed to load logger:', err));
+
   throw new Error(JSON.stringify(errInfo));
 }
 

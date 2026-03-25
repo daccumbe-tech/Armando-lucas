@@ -201,6 +201,23 @@
       },
       "required": ["id", "adminId", "action", "details"]
     },
+    "ErrorLog": {
+      "title": "Error Log",
+      "description": "Log of automatic application errors.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string", "description": "UID of the user who encountered the error" },
+        "userName": { "type": "string" },
+        "errorMessage": { "type": "string" },
+        "errorStack": { "type": "string" },
+        "componentStack": { "type": "string" },
+        "url": { "type": "string" },
+        "userAgent": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "errorMessage", "timestamp"]
+    },
     "SiteSettings": {
       "title": "Site Settings",
       "description": "Global application settings.",
@@ -250,6 +267,10 @@
     "/admin_logs/{logId}": {
       "schema": "AdminLog",
       "description": "Administrative action logs"
+    },
+    "/error_logs/{logId}": {
+      "schema": "ErrorLog",
+      "description": "Automatic application error logs"
     },
     "/site_settings/{settingsId}": {
       "schema": "SiteSettings",

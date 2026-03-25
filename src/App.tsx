@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { auth, db, sanitizeData, handleFirestoreError, OperationType } from './firebase';
+import { logErrorToFirestore } from './logger';
 import { 
   onAuthStateChanged, 
   deleteUser, 
@@ -45,6 +46,7 @@ import AdminDashboard from './components/AdminDashboard';
 import AdminUserManagement from './components/AdminUserManagement';
 import AdminSettings from './components/AdminSettings';
 import AdminLogs from './components/AdminLogs';
+import AdminErrorLogs from './components/AdminErrorLogs';
 import ReportModal from './components/ReportModal';
 import TermsOfUse from './components/TermsOfUse';
 import PrivacyPolicy from './components/PrivacyPolicy';
@@ -247,10 +249,21 @@ export default function App() {
   useEffect(() => {
     const handleError = (event: ErrorEvent) => {
       console.error('Global error caught in App:', event.error);
+      logErrorToFirestore({
+        errorMessage: event.error?.message || 'Global error',
+        errorStack: event.error?.stack,
+        url: window.location.href,
+      });
     };
 
     const handleRejection = (event: PromiseRejectionEvent) => {
       console.error('Unhandled promise rejection caught in App:', event.reason);
+      const error = event.reason instanceof Error ? event.reason : new Error(String(event.reason));
+      logErrorToFirestore({
+        errorMessage: error.message || 'Unhandled rejection',
+        errorStack: error.stack,
+        url: window.location.href,
+      });
     };
 
     window.addEventListener('error', handleError);
@@ -1881,6 +1894,10 @@ export default function App() {
 
         {currentPage === 'admin-logs' && user && user.email === 'daccumbe@gmail.com' && (
           <AdminLogs />
+        )}
+
+        {currentPage === 'admin-error-logs' && user && user.email === 'daccumbe@gmail.com' && (
+          <AdminErrorLogs />
         )}
 
         {currentPage === 'admin-dashboard' && user && user.email === 'daccumbe@gmail.com' && (

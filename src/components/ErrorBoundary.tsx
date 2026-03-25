@@ -1,4 +1,5 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { logErrorToFirestore } from '../logger';
 
 interface Props {
   children: ReactNode;
@@ -32,15 +33,32 @@ export default class ErrorBoundary extends Component<Props, State> {
   private handleGlobalError = (event: ErrorEvent) => {
     console.error('Global error caught:', event.error);
     this.setState({ hasError: true, error: event.error });
+    logErrorToFirestore({
+      errorMessage: event.error?.message || 'Global error',
+      errorStack: event.error?.stack,
+      url: window.location.href,
+    });
   };
 
   private handleUnhandledRejection = (event: PromiseRejectionEvent) => {
     console.error('Unhandled rejection caught:', event.reason);
-    this.setState({ hasError: true, error: new Error(String(event.reason)) });
+    const error = event.reason instanceof Error ? event.reason : new Error(String(event.reason));
+    this.setState({ hasError: true, error });
+    logErrorToFirestore({
+      errorMessage: error.message || 'Unhandled rejection',
+      errorStack: error.stack,
+      url: window.location.href,
+    });
   };
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('Uncaught error:', error, errorInfo);
+    logErrorToFirestore({
+      errorMessage: error.message || 'Uncaught error',
+      errorStack: error.stack,
+      componentStack: errorInfo.componentStack || undefined,
+      url: window.location.href,
+    });
   }
 
   public render() {

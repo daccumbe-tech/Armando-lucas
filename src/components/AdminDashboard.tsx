@@ -11,7 +11,8 @@ import {
   Clock, 
   ChevronRight,
   AlertTriangle,
-  CheckCircle2
+  CheckCircle2,
+  Bug
 } from 'lucide-react';
 import { motion } from 'motion/react';
 
@@ -26,7 +27,8 @@ export default function AdminDashboard({ onNavigate }: AdminDashboardProps) {
     totalProjects: 0,
     pendingKYC: 0,
     activeReports: 0,
-    suspiciousUsers: 0
+    suspiciousUsers: 0,
+    errorLogs: 0
   });
   const [loading, setLoading] = useState(true);
   const [recentUsers, setRecentUsers] = useState<UserProfile[]>([]);
@@ -41,6 +43,7 @@ export default function AdminDashboard({ onNavigate }: AdminDashboardProps) {
       const usersSnap = await getDocs(collection(db, 'users'));
       const projectsSnap = await getDocs(collection(db, 'projects'));
       const reportsSnap = await getDocs(collection(db, 'reports'));
+      const errorsSnap = await getDocs(collection(db, 'error_logs'));
 
       const users = usersSnap.docs.map(doc => doc.data() as UserProfile);
       
@@ -50,7 +53,8 @@ export default function AdminDashboard({ onNavigate }: AdminDashboardProps) {
         totalProjects: projectsSnap.size,
         pendingKYC: users.filter(u => u.kyc?.status === 'pending').length,
         activeReports: reportsSnap.docs.filter(doc => doc.data().status === 'pending').length,
-        suspiciousUsers: users.filter(u => u.isSuspicious).length
+        suspiciousUsers: users.filter(u => u.isSuspicious).length,
+        errorLogs: errorsSnap.size
       });
 
       // Fetch recent users
@@ -112,6 +116,14 @@ export default function AdminDashboard({ onNavigate }: AdminDashboardProps) {
       color: 'text-orange-600', 
       bg: 'bg-orange-50',
       action: () => onNavigate('admin-users')
+    },
+    { 
+      label: 'Erros do Sistema', 
+      value: stats.errorLogs, 
+      icon: Bug, 
+      color: 'text-red-700', 
+      bg: 'bg-red-100',
+      action: () => onNavigate('admin-error-logs')
     }
   ];
 
@@ -232,6 +244,16 @@ export default function AdminDashboard({ onNavigate }: AdminDashboardProps) {
                   <span className="text-sm font-bold">Ver Logs do Sistema</span>
                 </div>
                 <ChevronRight size={18} className="text-gray-300 group-hover:text-indigo-600" />
+              </button>
+              <button 
+                onClick={() => onNavigate('admin-error-logs')}
+                className="w-full flex items-center justify-between p-4 bg-gray-50 rounded-2xl hover:bg-red-50 hover:text-red-600 transition-all group"
+              >
+                <div className="flex items-center gap-3">
+                  <Bug size={20} />
+                  <span className="text-sm font-bold">Ver Logs de Erros</span>
+                </div>
+                <ChevronRight size={18} className="text-gray-300 group-hover:text-red-600" />
               </button>
               <button 
                 onClick={() => onNavigate('admin-settings')}

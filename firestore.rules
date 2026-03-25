@@ -40,6 +40,19 @@
 //   - read: boolean (required) - Whether the notification has been read
 //   - createdAt: timestamp (required) - When the notification was created
 //
+// Collection: error_logs
+// Document ID: {logId}
+// Fields:
+//   - id: string (required) - Log ID
+//   - userId: string (optional) - UID of the user
+//   - userName: string (optional) - Name of the user
+//   - errorMessage: string (required) - Error message
+//   - errorStack: string (optional) - Error stack trace
+//   - componentStack: string (optional) - React component stack
+//   - url: string (optional) - Current URL
+//   - userAgent: string (optional) - Browser user agent
+//   - timestamp: timestamp (required) - When the error occurred
+//
 // ===============================================================
 
 rules_version = '2';
@@ -109,6 +122,18 @@ service cloud.firestore {
              (!('userRole' in data) || data.userRole is string) &&
              data.text is string && data.text.size() > 0 && data.text.size() < 1000 &&
              data.createdAt is timestamp;
+    }
+
+    function isValidErrorLog(data) {
+      return data.keys().hasAll(['errorMessage', 'timestamp']) &&
+             data.errorMessage is string && data.errorMessage.size() > 0 && data.errorMessage.size() < 5000 &&
+             data.timestamp is timestamp &&
+             (!('userId' in data) || data.userId is string) &&
+             (!('userName' in data) || data.userName is string) &&
+             (!('errorStack' in data) || data.errorStack is string) &&
+             (!('componentStack' in data) || data.componentStack is string) &&
+             (!('url' in data) || data.url is string) &&
+             (!('userAgent' in data) || data.userAgent is string);
     }
 
     function isAdmin() {
@@ -238,6 +263,12 @@ service cloud.firestore {
     match /admin_logs/{logId} {
       allow read: if isAdmin();
       allow create: if isAdmin() && isValidAdminLog(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /error_logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isValidErrorLog(request.resource.data);
       allow delete: if isAdmin();
     }
 
