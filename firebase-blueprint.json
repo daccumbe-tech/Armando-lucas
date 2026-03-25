@@ -23,6 +23,8 @@
         "isEmailVerified": { "type": "boolean", "description": "Email verification status" },
         "isPhoneVerified": { "type": "boolean", "description": "Phone verification status" },
         "isInvestorVerified": { "type": "boolean", "description": "Investor KYC status" },
+        "uniqueViewsCount": { "type": "integer", "description": "Number of unique visitors" },
+        "interactionsCount": { "type": "integer", "description": "Number of interactions (clicks/messages)" },
         "kyc": {
           "type": "object",
           "properties": {

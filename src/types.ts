@@ -44,6 +44,8 @@ export interface UserProfile {
   isPhoneVerified?: boolean;
   phone?: string;
   isInvestorVerified?: boolean;
+  uniqueViewsCount?: number;
+  interactionsCount?: number;
   kyc?: {
     fullName: string;
     country: string;

@@ -50,6 +50,10 @@ import TermsOfUse from './components/TermsOfUse';
 import PrivacyPolicy from './components/PrivacyPolicy';
 import SupportButton from './components/SupportButton';
 import WelcomeModal from './components/WelcomeModal';
+import ProfileMetrics from './components/ProfileMetrics';
+import ShareProfile from './components/ShareProfile';
+import UserNudges from './components/UserNudges';
+import { Toaster, toast } from 'sonner';
 import { UserProfile, Project, CATEGORIES, ProjectComment, AppNotification, SiteSettings } from './types';
 import { translations, Language } from './i18n';
 import Navbar from './components/Navbar';
@@ -153,6 +157,26 @@ export default function App() {
   });
 
   useEffect(() => {
+    // Handle profile query param
+    const params = new URLSearchParams(window.location.search);
+    const profileId = params.get('profile');
+    if (profileId) {
+      const fetchProfile = async () => {
+        try {
+          const docSnap = await getDoc(doc(db, 'users', profileId));
+          if (docSnap.exists()) {
+            setViewingProfile({ uid: docSnap.id, ...docSnap.data() } as UserProfile);
+            setCurrentPage('profile-view');
+          }
+        } catch (err) {
+          console.error('Error fetching profile from URL:', err);
+        }
+      };
+      fetchProfile();
+    }
+  }, []);
+
+  useEffect(() => {
     // Security check for admin routes
     const adminRoutes = ['admin-dashboard', 'admin-kyc', 'admin-reports', 'admin-users', 'admin-settings'];
     if (adminRoutes.includes(currentPage)) {
@@ -221,6 +245,24 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const handleError = (event: ErrorEvent) => {
+      console.error('Global error caught in App:', event.error);
+    };
+
+    const handleRejection = (event: PromiseRejectionEvent) => {
+      console.error('Unhandled promise rejection caught in App:', event.reason);
+    };
+
+    window.addEventListener('error', handleError);
+    window.addEventListener('unhandledrejection', handleRejection);
+
+    return () => {
+      window.removeEventListener('error', handleError);
+      window.removeEventListener('unhandledrejection', handleRejection);
+    };
+  }, []);
+
+  useEffect(() => {
     let unsubscribeUser: () => void = () => {};
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -257,6 +299,31 @@ export default function App() {
   useEffect(() => {
     if (!viewingProfile) return;
 
+    // Increment profile views
+    const incrementViews = async () => {
+      if (!viewingProfile?.uid) return;
+      const profileId = viewingProfile.uid;
+      const sessionKey = `viewed_${profileId}`;
+      const isUnique = !sessionStorage.getItem(sessionKey);
+
+      try {
+        const updateData: any = {
+          viewsCount: (viewingProfile?.viewsCount || 0) + 1
+        };
+
+        if (isUnique) {
+          updateData.uniqueViewsCount = (viewingProfile?.uniqueViewsCount || 0) + 1;
+          sessionStorage.setItem(sessionKey, 'true');
+        }
+
+        await updateDoc(doc(db, 'users', profileId), updateData);
+      } catch (err) {
+        console.error('Error incrementing profile views:', err);
+      }
+    };
+
+    incrementViews();
+
     const unsubscribe = onSnapshot(doc(db, 'users', viewingProfile.uid), (docSnap) => {
       if (docSnap.exists()) {
         setViewingProfile({ uid: docSnap.id, ...docSnap.data() } as UserProfile);
@@ -276,12 +343,13 @@ export default function App() {
 
     const q = query(
       collection(db, 'conversations'),
-      where('participants', 'array-contains', user.uid)
+      where('participants', 'array-contains', user?.uid || '')
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const total = snapshot.docs.reduce((acc, doc) => {
         const data = doc.data();
+        if (!user?.uid) return acc;
         return acc + (data.unreadCounts?.[user.uid] || 0);
       }, 0);
       setUnreadMessagesCount(total);
@@ -306,7 +374,7 @@ export default function App() {
 
     const q = query(
       collection(db, 'notifications'),
-      where('recipientId', '==', user.uid),
+      where('recipientId', '==', user?.uid || ''),
       orderBy('createdAt', 'desc'),
       limit(20)
     );
@@ -327,6 +395,7 @@ export default function App() {
     }
 
     const fetchRecommendations = async () => {
+      if (!user) return;
       try {
         // Simple recommendation: projects in user's interests or investor's focus
         const interests = user.role === 'investor' ? user.investmentFocus : user.interests;
@@ -377,7 +446,7 @@ export default function App() {
   }, [viewingProfile?.viewedProjects]);
 
   const addToHistory = async (projectId: string) => {
-    if (!user) return;
+    if (!user?.uid) return;
     
     const currentHistory = user.viewedProjects || [];
     if (currentHistory.includes(projectId)) return;
@@ -401,13 +470,13 @@ export default function App() {
   };
 
   const createNotification = async (recipientId: string, type: AppNotification['type'], projectTitle: string, projectId: string) => {
-    if (!user || user.uid === recipientId) return;
+    if (!user?.uid || user.uid === recipientId) return;
 
     try {
       await addDoc(collection(db, 'notifications'), {
         recipientId,
         senderId: user.uid,
-        senderName: user.name,
+        senderName: user.name || 'Anonymous',
         senderPhotoURL: user.photoURL || '',
         type,
         projectTitle,
@@ -543,7 +612,7 @@ export default function App() {
       });
     } catch (err) {
       console.error('Error adding project:', err);
-      alert('Erro ao publicar projeto. Tente novamente.');
+      toast.error('Erro ao publicar projeto. Tente novamente.');
     } finally {
       setIsSubmitting(false);
     }
@@ -598,7 +667,8 @@ export default function App() {
             following: [...currentFollowing, targetUserId]
           });
           transaction.update(targetUserRef, {
-            followers: [...targetFollowers, user.uid]
+            followers: [...targetFollowers, user.uid],
+            interactionsCount: (targetUserData.interactionsCount || 0) + 1
           });
         }
       });
@@ -685,7 +755,7 @@ export default function App() {
   };
 
   const handleLikeProject = async (projectId: string) => {
-    if (!user) return;
+    if (!user?.uid) return;
     const projectRef = doc(db, 'projects', projectId);
     const project = projects.find(p => p.id === projectId);
     if (!project) return;
@@ -699,26 +769,29 @@ export default function App() {
           likedBy: likedBy.filter(id => id !== user.uid),
           likesCount: (project.likesCount || 1) - 1
         });
+        toast.success('Removido dos favoritos');
       } else {
         await updateDoc(projectRef, {
           likedBy: [...likedBy, user.uid],
           likesCount: (project.likesCount || 0) + 1
         });
         await createNotification(project.talentId, 'like', project.title, project.id);
+        toast.success('Adicionado aos favoritos!');
       }
     } catch (err) {
       console.error('Error liking project:', err);
+      toast.error('Erro ao curtir projeto');
     }
   };
 
   const handleRateTalent = async (talentId: string, stars: number) => {
-    if (!user) {
-      alert('Faça login para avaliar este talento!');
+    if (!user?.uid) {
+      toast.error('Faça login para avaliar este talento!');
       return;
     }
 
     if (user.role !== 'investor') {
-      alert('Apenas investidores podem avaliar talentos!');
+      toast.error('Apenas investidores podem avaliar talentos!');
       return;
     }
 
@@ -763,15 +836,16 @@ export default function App() {
       }
       
       await createNotification(talentId, 'rating', 'seu perfil', talentId);
+      toast.success('Avaliação enviada com sucesso!');
     } catch (err: any) {
       console.error('Error rating talent:', err);
-      alert(err.message || 'Erro ao avaliar talento.');
+      toast.error(err.message || 'Erro ao avaliar talento.');
     }
   };
 
   const handleRateProject = async (projectId: string, stars: number) => {
-    if (!user) {
-      alert('Faça login para avaliar este projeto!');
+    if (!user?.uid) {
+      toast.error('Faça login para avaliar este projeto!');
       return;
     }
 
@@ -824,21 +898,22 @@ export default function App() {
           createdAt: serverTimestamp()
         });
       });
+      toast.success('Projeto avaliado com sucesso!');
     } catch (err: any) {
       console.error('Error rating project:', err);
-      alert(err.message || 'Erro ao registrar avaliação');
+      toast.error(err.message || 'Erro ao registrar avaliação');
     }
   };
 
   const openChatWith = async (recipient: UserProfile) => {
-    if (!user) {
+    if (!user?.uid) {
       setCurrentPage('auth');
       return;
     }
 
     // Check verification
     if (!auth.currentUser?.emailVerified || !user.isPhoneVerified) {
-      alert('Por favor, verifique seu e-mail e telefone para iniciar conversas.');
+      toast.error('Por favor, verifique seu e-mail e telefone para iniciar conversas.');
       setCurrentPage('verification');
       return;
     }
@@ -846,6 +921,11 @@ export default function App() {
     setChatRecipient(recipient);
     
     try {
+      // Increment interactions count
+      await updateDoc(doc(db, 'users', recipient.uid), {
+        interactionsCount: (recipient.interactionsCount || 0) + 1
+      });
+
       // Find existing conversation
       const q = query(
         collection(db, 'conversations'),
@@ -864,7 +944,7 @@ export default function App() {
         const newConvRef = await addDoc(collection(db, 'conversations'), {
           participants: [user.uid, recipient.uid],
           participantNames: {
-            [user.uid]: user.name,
+            [user.uid]: user.name || 'Anonymous',
             [recipient.uid]: recipient.name
           },
           participantPhotos: {
@@ -888,19 +968,19 @@ export default function App() {
       }
     } catch (err) {
       console.error('Error opening chat:', err);
-      alert('Erro ao abrir chat.');
+      toast.error('Erro ao abrir chat.');
     }
   };
 
   const handleContactWhatsApp = async (recipient: UserProfile) => {
-    if (!user) {
+    if (!user?.uid) {
       setCurrentPage('auth');
       return;
     }
 
     // Check verification
     if (!auth.currentUser?.emailVerified || !user.isPhoneVerified) {
-      alert('Por favor, verifique seu e-mail e telefone para acessar contatos externos.');
+      toast.error('Por favor, verifique seu e-mail e telefone para acessar contatos externos.');
       setCurrentPage('verification');
       return;
     }
@@ -911,7 +991,8 @@ export default function App() {
     if (user.uid !== recipient.uid) {
       try {
         await updateDoc(doc(db, 'users', recipient.uid), {
-          contactsCount: (recipient.contactsCount || 0) + 1
+          contactsCount: (recipient.contactsCount || 0) + 1,
+          interactionsCount: (recipient.interactionsCount || 0) + 1
         });
       } catch (err) {
         console.error('Error updating contacts count:', err);
@@ -1147,6 +1228,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gray-50 font-sans text-gray-900">
+      <Toaster position="top-center" richColors />
       <Navbar 
         user={user} 
         onNavigate={setCurrentPage} 
@@ -1353,42 +1435,52 @@ export default function App() {
               </motion.div>
             )}
             
+            {user?.uid === viewingProfile?.uid && (
+              <UserNudges user={user} onAction={setCurrentPage} />
+            )}
+
+            <ProfileMetrics 
+              views={viewingProfile?.viewsCount || 0}
+              uniqueVisitors={viewingProfile?.uniqueViewsCount || 0}
+              interactions={viewingProfile?.interactionsCount || 0}
+            />
+            
             <div className="bg-white rounded-3xl p-6 sm:p-12 border border-gray-100 shadow-sm">
               <div className="flex flex-col md:flex-row gap-8 items-center md:items-start text-center md:text-left">
                 <div className="w-24 h-24 sm:w-32 sm:h-32 bg-indigo-600 rounded-3xl flex items-center justify-center text-white text-3xl sm:text-5xl font-bold shadow-lg shadow-indigo-100 overflow-hidden flex-shrink-0">
-                  {viewingProfile.photoURL ? (
+                  {viewingProfile?.photoURL ? (
                     <img src={viewingProfile.photoURL} alt={viewingProfile.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                   ) : (
-                    viewingProfile.name.charAt(0)
+                    viewingProfile?.name?.charAt(0) || '?'
                   )}
                 </div>
                 <div className="flex-1 w-full">
                   <div className="flex flex-col sm:flex-row items-center md:items-start gap-2 sm:gap-4 mb-4">
                     <div className="flex items-center gap-2">
                       <div className="flex items-center gap-2">
-                        <h2 className="text-2xl sm:text-4xl font-extrabold text-gray-900">{viewingProfile.name}</h2>
-                        {viewingProfile.email === 'daccumbe@gmail.com' && user?.email === 'daccumbe@gmail.com' && (
+                        <h2 className="text-2xl sm:text-4xl font-extrabold text-gray-900">{viewingProfile?.name}</h2>
+                        {viewingProfile?.email === 'daccumbe@gmail.com' && user?.email === 'daccumbe@gmail.com' && (
                           <span className="text-xs font-black text-indigo-600 bg-indigo-50 px-2 py-1 rounded-lg uppercase tracking-tighter">Admin</span>
                         )}
-                        {viewingProfile.isFounder && (
+                        {viewingProfile?.isFounder && (
                           <div className="flex items-center gap-1 bg-amber-100 text-amber-700 px-2 py-1 rounded-lg text-[10px] font-bold" title="Usuário Fundador">
                             <ShieldCheck size={14} />
                             <span>FUNDADOR</span>
                           </div>
                         )}
                       </div>
-                      {(viewingProfile.isVerified || (viewingProfile.isEmailVerified && viewingProfile.isPhoneVerified)) && (
+                      {(viewingProfile?.isVerified || (viewingProfile?.isEmailVerified && viewingProfile?.isPhoneVerified)) && (
                         <div title="Perfil Verificado">
                           <CheckCircle2 size={24} className="text-blue-500 fill-blue-50" />
                         </div>
                       )}
-                      {viewingProfile.isInvestorVerified && (
+                      {viewingProfile?.isInvestorVerified && (
                         <div title="Investidor Verificado" className="flex items-center gap-1 bg-green-100 text-green-700 px-2 py-1 rounded-lg text-[10px] font-bold">
                           <Check size={14} />
                           <span>INVESTIDOR VERIFICADO</span>
                         </div>
                       )}
-                      {viewingProfile.role === 'talent' && (viewingProfile.rating?.average || 0) >= 4.5 && (viewingProfile.rating?.count || 0) >= 5 && (
+                      {viewingProfile?.role === 'talent' && (viewingProfile.rating?.average || 0) >= 4.5 && (viewingProfile.rating?.count || 0) >= 5 && (
                         <div className="flex items-center gap-1 bg-amber-100 text-amber-700 px-2 py-1 rounded-lg text-[10px] font-bold" title="Top Talento">
                           <Award size={14} />
                           <span>TOP TALENTO</span>
@@ -1396,18 +1488,18 @@ export default function App() {
                       )}
                     </div>
                     <span className="bg-indigo-50 text-indigo-600 text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-wider">
-                      {viewingProfile.role === 'talent' ? viewingProfile.category : 'Investidor'}
+                      {viewingProfile?.role === 'talent' ? viewingProfile.category : 'Investidor'}
                     </span>
                   </div>
 
                   <div className="flex flex-wrap justify-center md:justify-start items-center gap-4 mb-4">
-                    {(viewingProfile.city || viewingProfile.country) && (
+                    {(viewingProfile?.city || viewingProfile?.country) && (
                       <div className="flex items-center gap-1 text-gray-500 text-sm">
                         <MapPin size={16} className="text-indigo-600" />
                         <span>{viewingProfile.city}{viewingProfile.city && viewingProfile.country && ', '}{viewingProfile.country}</span>
                       </div>
                     )}
-                    {viewingProfile.role === 'talent' && (
+                    {viewingProfile?.role === 'talent' && (
                       <StarRating 
                         rating={viewingProfile.rating?.average || 0} 
                         count={viewingProfile.rating?.count || 0}
@@ -1417,7 +1509,7 @@ export default function App() {
                     )}
                   </div>
 
-                  {viewingProfile.role === 'investor' && viewingProfile.company && (
+                  {viewingProfile?.role === 'investor' && viewingProfile.company && (
                     <p className="text-indigo-600 font-bold mb-2 flex items-center justify-center md:justify-start gap-2">
                       <Briefcase size={18} />
                       {viewingProfile.company}
@@ -1425,22 +1517,26 @@ export default function App() {
                   )}
 
                   <p className="text-gray-600 text-base sm:text-lg mb-6 leading-relaxed max-w-2xl mx-auto md:mx-0">
-                    {viewingProfile.bio || 'Sem descrição disponível.'}
+                    {viewingProfile?.bio || 'Sem descrição disponível.'}
                   </p>
+
+                  <div className="mb-8">
+                    <ShareProfile uid={viewingProfile?.uid || ''} name={viewingProfile?.name || ''} />
+                  </div>
 
                   <div className="flex flex-wrap justify-center md:justify-start gap-6 sm:gap-10 mb-8 border-y border-gray-50 py-6">
                     <div className="text-center md:text-left">
-                      <p className="text-xl sm:text-2xl font-bold text-gray-900">{viewingProfile.followers?.length || 0}</p>
+                      <p className="text-xl sm:text-2xl font-bold text-gray-900">{viewingProfile?.followers?.length || 0}</p>
                       <p className="text-[10px] text-gray-500 uppercase tracking-wider font-bold">Seguidores</p>
                     </div>
                     <div className="text-center md:text-left">
-                      <p className="text-xl sm:text-2xl font-bold text-gray-900">{viewingProfile.following?.length || 0}</p>
+                      <p className="text-xl sm:text-2xl font-bold text-gray-900">{viewingProfile?.following?.length || 0}</p>
                       <p className="text-[10px] text-gray-500 uppercase tracking-wider font-bold">Seguindo</p>
                     </div>
-                    {viewingProfile.role === 'talent' && (
+                    {viewingProfile?.role === 'talent' && (
                       <div className="text-center md:text-left">
                         <p className="text-xl sm:text-2xl font-bold text-gray-900">
-                          {projects.filter(p => p.talentId === viewingProfile.uid).length}
+                          {projects.filter(p => p.talentId === viewingProfile?.uid).length}
                         </p>
                         <p className="text-[10px] text-gray-500 uppercase tracking-wider font-bold">Trabalhos</p>
                       </div>
@@ -1448,14 +1544,14 @@ export default function App() {
                     <div className="text-center md:text-left">
                       <p className="text-xl sm:text-2xl font-bold text-gray-900 flex items-center justify-center md:justify-start gap-1">
                         <Eye size={16} className="text-gray-400" />
-                        {viewingProfile.viewsCount || 0}
+                        {viewingProfile?.viewsCount || 0}
                       </p>
                       <p className="text-[10px] text-gray-500 uppercase tracking-wider font-bold">Visualizações</p>
                     </div>
                     <div className="text-center md:text-left">
                       <p className="text-xl sm:text-2xl font-bold text-gray-900 flex items-center justify-center md:justify-start gap-1">
                         <MessageSquare size={16} className="text-gray-400" />
-                        {viewingProfile.contactsCount || 0}
+                        {viewingProfile?.contactsCount || 0}
                       </p>
                       <p className="text-[10px] text-gray-500 uppercase tracking-wider font-bold">Contatos</p>
                     </div>

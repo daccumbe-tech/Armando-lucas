@@ -173,7 +173,7 @@ service cloud.firestore {
       allow create: if isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role != 'admin' || isAdmin());
       allow update: if (isOwner(userId) && isNotBanned() && isValidUser(request.resource.data) && (request.resource.data.role == resource.data.role || isAdmin()) && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['isFeatured', 'isFounder', 'isTalentOfTheWeek', 'isVerified', 'isInvestorVerified', 'status', 'isBanned', 'isSuspicious']) || isAdmin())) ||
                     (isOwner(userId) && isNotBanned() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['welcomeShown'])) ||
-                    (isAuthenticated() && isNotBanned() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['followers', 'viewedProjects', 'messageCount', 'lastMessageAt', 'dailyMessageCount'])) ||
+                    (isAuthenticated() && isNotBanned() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['followers', 'viewedProjects', 'messageCount', 'lastMessageAt', 'dailyMessageCount', 'viewsCount', 'uniqueViewsCount', 'interactionsCount'])) ||
                     (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reportCount'])) ||
                     isAdmin();
       allow delete: if isOwner(userId) || isAdmin();
